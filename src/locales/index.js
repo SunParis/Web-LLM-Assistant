@@ -1,9 +1,11 @@
 import en from "./en.js";
 import zhHant from "./zh-Hant.js";
 import zhHans from "./zh-Hans.js";
+import ja from "./ja.js";
 
 export const LOCALES = {
   en,
+  "ja": ja,
   "zh-Hant": zhHant,
   "zh-Hans": zhHans
 };
