@@ -45,6 +45,8 @@ const ICON_SETTINGS =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.51.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/></svg>';
 const ICON_CLEAR =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 7h12v2H6z"/><path fill="currentColor" d="M8 10h8l-1 9H9z"/><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4z"/></svg>';
+const ICON_CANCEL_EDIT =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.3z"/></svg>';
 
 function isPendingMessage(msg) {
   return msg?.meta === "pending";
@@ -420,8 +422,11 @@ function applyText() {
   els.title.textContent = currentDict.sidepanelTitle;
   els.input.placeholder = currentDict.placeholderInput;
   els.snippetLabel.textContent = currentDict.selectedText;
-  els.cancelEditBtn.title = currentDict.cancelEdit || "Cancel edit";
-  els.cancelEditBtn.setAttribute("aria-label", currentDict.cancelEdit || "Cancel edit");
+  const cancelEditLabel = currentDict.cancelEdit || "Cancel edit";
+  const cancelEditLabelWithShortcut = `${cancelEditLabel} (Esc)`;
+  els.cancelEditBtn.innerHTML = `${ICON_CANCEL_EDIT}`;
+  els.cancelEditBtn.title = cancelEditLabelWithShortcut;
+  els.cancelEditBtn.setAttribute("aria-label", cancelEditLabelWithShortcut);
   els.clearHistoryBtn.innerHTML = ICON_CLEAR;
   els.clearHistoryBtn.title = currentDict.clearHistory;
   els.clearHistoryBtn.setAttribute("aria-label", currentDict.clearHistory);
@@ -882,6 +887,11 @@ async function bootstrap() {
   els.cancelEditBtn.addEventListener("click", cancelEditing);
   els.clearHistoryBtn.addEventListener("click", clearCurrentPageHistory);
   els.input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && editingContext) {
+      e.preventDefault();
+      cancelEditing();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSend();
