@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web LLM Assistant</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <h1 id="title"></h1>
+      <div class="header-actions">
+        <button id="clear-history-btn" type="button"></button>
+        <a
+          id="settings-link"
+          href="options.html"
+          target="_blank"
+          rel="noreferrer"
+        ></a>
+      </div>
+    </header>
+
+    <main id="messages"></main>
+
+    <section class="composer">
+      <div id="snippet-label" class="snippet-label"></div>
+      <div id="snippet-list" class="snippet-list"></div>
+      <div class="input-row">
+        <textarea id="user-input" rows="2"></textarea>
+        <button id="send-btn" type="button"></button>
+      </div>
+    </section>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

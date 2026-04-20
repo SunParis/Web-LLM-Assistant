@@ -1,0 +1,129 @@
+:root {
+  font-family: "Noto Sans TC", "Segoe UI", sans-serif;
+  color-scheme: light dark;
+  --bg: #f8fafc;
+  --text: #111827;
+  --muted: #64748b;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --primary: #1f2937;
+  --primary-text: #f9fafb;
+  --status: #374151;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --input-bg: #111827;
+    --input-border: #334155;
+    --primary: #d1d5db;
+    --primary-text: #111827;
+    --status: #cbd5e1;
+  }
+}
+
+:root[data-theme="light"],
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f8fafc;
+  --text: #111827;
+  --muted: #64748b;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --primary: #1f2937;
+  --primary-text: #f9fafb;
+  --status: #374151;
+}
+
+:root[data-theme="dark"],
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --input-bg: #111827;
+  --input-border: #334155;
+  --primary: #d1d5db;
+  --primary-text: #111827;
+  --status: #cbd5e1;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+h1 {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: color-mix(in srgb, var(--input-border) 80%, var(--text) 20%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--input-border) 70%, transparent);
+}
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: var(--primary);
+  color: var(--primary-text);
+  cursor: pointer;
+}
+
+#status {
+  min-height: 24px;
+  color: var(--status);
+}
