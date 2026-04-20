@@ -1,0 +1,33 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Web LLM Assistant icon">
+  <defs>
+    <linearGradient id="bg" x1="16" y1="8" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="34" y1="30" x2="92" y2="94" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <filter id="glow" x="14" y="14" width="100" height="100" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.22 0 0 0 0 0.62 0 0 0 0 0.95 0 0 0 0.35 0"/>
+    </filter>
+  </defs>
+
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
+  <rect x="8" y="8" width="112" height="112" rx="28" stroke="#60A5FA" stroke-opacity="0.25" stroke-width="2"/>
+
+  <path d="M86 26H42C36.4772 26 32 30.4772 32 36V86C32 91.5228 36.4772 96 42 96H64L72 104V96H86C91.5228 96 96 91.5228 96 86V36C96 30.4772 91.5228 26 86 26Z" fill="url(#bubble)"/>
+  <path d="M42 26H86C91.5228 26 96 30.4772 96 36V46H32V36C32 30.4772 36.4772 26 42 26Z" fill="#93C5FD" fill-opacity="0.35"/>
+
+  <circle cx="49" cy="63" r="5" fill="#DBEAFE"/>
+  <circle cx="64" cy="63" r="5" fill="#DBEAFE"/>
+  <circle cx="79" cy="63" r="5" fill="#DBEAFE"/>
+
+  <path d="M95 24L98 31L105 34L98 37L95 44L92 37L85 34L92 31L95 24Z" fill="#BFDBFE"/>
+  <path d="M31 84L33 89L38 91L33 93L31 98L29 93L24 91L29 89L31 84Z" fill="#93C5FD" fill-opacity="0.9"/>
+
+  <g filter="url(#glow)">
+    <rect x="24" y="24" width="80" height="80" rx="22" fill="#38BDF8" fill-opacity="0.18"/>
+  </g>
+</svg>
