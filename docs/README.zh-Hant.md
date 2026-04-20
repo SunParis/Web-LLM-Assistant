@@ -4,7 +4,7 @@
 
 ## 語言
 
-- [English](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/README.md)
+- [English](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/README.en.md)
 - [日本語](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/README.ja.md)
 - 繁體中文（本頁）
 - [简体中文](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/README.zh-Hans.md)
@@ -15,6 +15,11 @@
 - 透過右鍵選單把網頁選取文字加入上下文。
 - 訊息可編輯、重送、複製、刪除。
 - 串流生成中可中止。
+- 回答前會自動嘗試生成目前頁面的摘要（失敗時會 fallback 並繼續回答）。
+- 會在助手訊息中顯示摘要狀態（嘗試中/成功/失敗）。
+- 助手回覆採兩段式顯示（摘要狀態行 + 最終回答行）。
+- 重新送出/編輯時會移除暫時性的摘要狀態行（但保留摘要快取）。
+- 清除目前頁面聊天記錄時，會保留摘要快取供後續提問重用。
 - 每頁會話歷史保存。
 - 可設定 API URL、API Key、模型、Prompt 與取樣參數。
 - 介面語言選項:
@@ -49,6 +54,47 @@
 3. 若要加入頁面上下文:
    - 在網頁上選取文字
    - 右鍵選單點選 Ask AI
+
+## 補充
+
+- `pageSummary` 不會因「清除此頁歷史」被刪除。
+- `pageSummary` 會在關閉該分頁時刪除。
+
+## 法律與合規聲明
+
+- 本專案不構成法律意見，也無法保證在所有司法管轄區都自動合規。
+- 使用者需自行確認，是否有權利將網頁內容處理後傳送至第三方 LLM 服務。
+- 若無合法依據與授權，請勿提交個資、敏感資料、機密資訊或受著作權保護內容。
+- 請遵守網站服務條款、機器人/政策限制與平台規範。
+- 使用者需自行遵循所在地法律（例如：隱私、個資保護、著作權、消費者保護等）。
+
+### 建議對外顯示的免責文字
+
+可放在設定頁或商店說明：
+
+「本擴充功能可能會將你選取的網頁文字與產生的頁面摘要，傳送到你設定的 LLM API 服務商。未經授權請勿提交個資、機密或受著作權保護內容。使用本擴充功能即表示你同意自行遵守適用法律與網站條款。」
+
+## 資料保存策略
+
+- `chrome.storage.local`:
+   - 僅保存設定（API 端點、模型、語言、同意狀態、提醒開關、Prompt 設定）。
+- `chrome.storage.session`:
+   - 保存分頁/頁面層級會話（`messages`、`snippets`、`pageSummary` 快取）。
+   - 使用者清除此頁聊天時，`pageSummary` 仍會保留。
+   - 分頁關閉時，該分頁 session 內容會刪除。
+- 本擴充功能本身不使用專案端後端資料庫。
+
+## 資料流向圖
+
+```mermaid
+flowchart TD
+   U[使用者輸入或圈選文字] --> SP[側邊欄]
+   SP --> SS[Session Storage\nmessages/snippets/pageSummary]
+   SP -->|Prompt 與可選摘要| API[使用者設定的 LLM API 服務商]
+   API --> SP
+   OPT[設定頁] --> LS[Local Storage\nsettings/consent/reminder]
+   LS --> SP
+```
 
 ## 授權
 

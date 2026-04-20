@@ -18,6 +18,14 @@ const els = {
   temperature: document.getElementById("temperature"),
   topP: document.getElementById("top-p"),
   maxTokens: document.getElementById("max-tokens"),
+  enableSidePanelShortcut: document.getElementById("enable-sidepanel-shortcut"),
+  enableSidePanelShortcutHelp: document.getElementById("enable-sidepanel-shortcut-help"),
+  enablePageSummary: document.getElementById("enable-page-summary"),
+  enablePageSummaryHelp: document.getElementById("enable-page-summary-help"),
+  legalConsent: document.getElementById("legal-consent"),
+  legalConsentHelp: document.getElementById("legal-consent-help"),
+  sensitiveReminder: document.getElementById("sensitive-reminder"),
+  sensitiveReminderHelp: document.getElementById("sensitive-reminder-help"),
   saveBtn: document.getElementById("save-btn"),
   testBtn: document.getElementById("test-btn"),
   status: document.getElementById("status"),
@@ -30,7 +38,11 @@ const els = {
   promptHelp: document.getElementById("prompt-help"),
   labelTemperature: document.getElementById("label-temperature"),
   labelTopP: document.getElementById("label-top-p"),
-  labelMaxTokens: document.getElementById("label-max-tokens")
+  labelMaxTokens: document.getElementById("label-max-tokens"),
+  labelEnableSidePanelShortcut: document.getElementById("label-enable-sidepanel-shortcut"),
+  labelEnablePageSummary: document.getElementById("label-enable-page-summary"),
+  labelLegalConsent: document.getElementById("label-legal-consent"),
+  labelSensitiveReminder: document.getElementById("label-sensitive-reminder")
 };
 
 let currentDict = getDict(DEFAULT_SETTINGS.displayLanguage);
@@ -77,6 +89,14 @@ function applyText() {
   els.labelTemperature.textContent = currentDict.temperature;
   els.labelTopP.textContent = currentDict.topP;
   els.labelMaxTokens.textContent = currentDict.maxTokens;
+  els.labelEnableSidePanelShortcut.textContent = currentDict.enableSidePanelShortcutLabel;
+  els.enableSidePanelShortcutHelp.textContent = currentDict.enableSidePanelShortcutHelp;
+  els.labelEnablePageSummary.textContent = currentDict.enablePageSummaryLabel;
+  els.enablePageSummaryHelp.textContent = currentDict.enablePageSummaryHelp;
+  els.labelLegalConsent.textContent = currentDict.legalConsentLabel;
+  els.legalConsentHelp.textContent = currentDict.legalConsentHelp;
+  els.labelSensitiveReminder.textContent = currentDict.sensitiveReminderLabel;
+  els.sensitiveReminderHelp.textContent = currentDict.sensitiveReminderHelp;
   els.saveBtn.textContent = currentDict.save;
   els.testBtn.textContent = currentDict.testApi;
 }
@@ -111,6 +131,10 @@ async function loadValues() {
   els.temperature.value = settings.temperature;
   els.topP.value = settings.topP;
   els.maxTokens.value = settings.maxTokens;
+  els.enableSidePanelShortcut.checked = Boolean(settings.enableSidePanelShortcut);
+  els.enablePageSummary.checked = Boolean(settings.enablePageSummary);
+  els.legalConsent.checked = Boolean(settings.legalConsentAccepted);
+  els.sensitiveReminder.checked = settings.sensitiveDataReminderEnabled !== false;
 }
 
 function collectValues() {
@@ -127,12 +151,20 @@ function collectValues() {
     promptByLanguage: promptByLanguageCache,
     temperature: Number(els.temperature.value),
     topP: Number(els.topP.value),
-    maxTokens: Number(els.maxTokens.value)
+    maxTokens: Number(els.maxTokens.value),
+    enableSidePanelShortcut: Boolean(els.enableSidePanelShortcut.checked),
+    enablePageSummary: Boolean(els.enablePageSummary.checked),
+    legalConsentAccepted: Boolean(els.legalConsent.checked),
+    sensitiveDataReminderEnabled: Boolean(els.sensitiveReminder.checked)
   };
 }
 
 async function saveSettings() {
   const settings = collectValues();
+  if (!settings.legalConsentAccepted) {
+    setStatus(currentDict.legalConsentRequired, false);
+    return;
+  }
   await chrome.storage.local.set(settings);
   currentDict = getDict(settings.displayLanguage);
   applyTheme(settings.themeMode);

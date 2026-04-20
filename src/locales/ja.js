@@ -14,6 +14,10 @@ export default {
     selectedText: "選択したテキスト",
     selectedTextHistoryLabel: "[選択内容]",
     noMessages: "まだメッセージはありません。",
+    summaryPreparing: "ページを高速要約中",
+    summarySuccess: "要約が完了しました",
+    summaryFailedPrefix: "要約失敗",
+    summaryFailedUnknown: "不明な理由",
     stopped: "停止しました。",
     errorPrefix: "エラー",
     settingsTitle: "拡張機能の設定",
@@ -27,10 +31,27 @@ export default {
     model: "モデル名",
     prompt: "プロンプト",
     promptHelp:
-      "使用可能な変数：{{history}}、{{selected_text}}、{{user_query}}。会話履歴や選択内容が空の場合は「（空）」が自動的に挿入されます。",
+      "使用可能な変数：{{history}}、{{selected_text}}、{{page_summary}}、{{user_query}}。会話履歴や選択内容が空の場合は「（空）」が自動的に挿入されます。ページ要約がない場合は空のままになります。",
     temperature: "Temperature",
     topP: "Top P",
     maxTokens: "Max Tokens",
+    enableSidePanelShortcutLabel: "サイドパネルを開くショートカットを有効化",
+    enableSidePanelShortcutHelp:
+      "既定はオフです。有効化後、ブラウザの拡張機能ショートカット画面で「拡張機能を有効化（Activate extension）」にキーを割り当ててください。",
+    enablePageSummaryLabel: "ページ先行要約を有効化",
+    enablePageSummaryHelp:
+      "既定はオフです。有効化すると、回答前に現在ページの要約を試行します。",
+    legalConsentLabel: "データ/コンプライアンス注意事項に同意します",
+    legalConsentHelp:
+      "利用前に、ページ内容を処理して設定した API プロバイダーへ送信する権利があることを確認してください。",
+    legalConsentRequired: "設定保存の前に、コンプライアンス同意にチェックしてください。",
+    sensitiveReminderLabel: "送信前にプライバシー/機密情報の注意を表示する",
+    sensitiveReminderHelp:
+      "有効化すると、個人情報・アカウント識別情報・資格情報/キー・機密情報が含まれる可能性がある場合に、送信前の確認を表示します。",
+    consentNotAcceptedMessage:
+      "メッセージ送信前に、設定画面でコンプライアンス同意を有効にしてください。",
+    sensitiveReminderConfirm:
+      "プライバシー/機密情報（例: 個人情報、アカウント識別情報、資格情報/キー）が含まれる可能性があります。設定済み API プロバイダーへ送信しますか？",
     save: "設定を保存",
     testApi: "API 接続テスト",
     testing: "テスト中...",
@@ -41,13 +62,13 @@ export default {
     cleared: "履歴をクリアしました"
   },
   promptTemplate: `あなたはプロフェッショナルで効率的なChromeウェブAIアシスタントです。
-提供された【会話履歴】と【選択されたウェブ内容】に基づいて、【ユーザーの指示】に答えてください。
+提供された【会話履歴】、【選択されたウェブ内容】、【現在のページ要約】に基づいて、【ユーザーの指示】に答えてください。
 
 ### ルール：
 1. 必ず自然で流暢な**日本語**で回答してください。
 2. 回答は簡潔かつ要点を押さえ、選択されたウェブ内容に密接に基づいてください。
-3. 【選択されたウェブ内容】が空の場合は、【会話履歴】と【ユーザーの指示】のみに基づいて回答してください。
-4. 選択内容が空でも、ユーザーに再度選択を求めず、そのまま回答してください（ユーザーが明示的にページ取得を求めた場合を除く）。
+3. 【現在のページ要約】または【選択されたウェブ内容】が空でも、利用可能な文脈で回答してください。
+4. 文脈が一部空でも、ユーザーに再入力を求めず、そのまま回答してください（ユーザーが明示的にページ取得を求めた場合を除く）。
 5. ユーザーの指示を繰り返さず、直接結果を提示してください。
 
 ### 入力データ：
@@ -60,6 +81,11 @@ export default {
 【選択されたウェブ内容】
 """
 {{selected_text}}
+"""
+
+【現在のページ要約】
+"""
+{{page_summary}}
 """
 
 【ユーザーの指示】

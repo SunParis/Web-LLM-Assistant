@@ -3,7 +3,7 @@
   "name": "Web LLM Assistant",
   "version": "1.0.0",
   "description": "A page-aware LLM assistant with side panel chat and selected-text context.",
-  "permissions": ["storage", "contextMenus", "tabs", "sidePanel"],
+  "permissions": ["storage", "contextMenus", "tabs", "sidePanel", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",
@@ -26,5 +26,8 @@
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png"
     }
+  },
+  "commands": {
+    "_execute_action": {}
   }
 }

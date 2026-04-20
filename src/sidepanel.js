@@ -15,6 +15,7 @@ const els = {
   messages: document.getElementById("messages"),
   snippetLabel: document.getElementById("snippet-label"),
   snippetList: document.getElementById("snippet-list"),
+  summaryStatus: document.getElementById("summary-status"),
   input: document.getElementById("user-input"),
   cancelEditBtn: document.getElementById("cancel-edit-btn"),
   sendBtn: document.getElementById("send-btn")
@@ -28,6 +29,8 @@ let currentContext = {
 
 let currentDict = getDict("zh-Hant");
 let currentAbortController = null;
+let currentSummaryAbortController = null;
+let isSummaryInProgress = false;
 let editingContext = null;
 const ICON_SEND =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 20.25V14.5L10.5 12L3 9.5V3.75L21 12L3 20.25Z"/></svg>';
@@ -47,15 +50,152 @@ const ICON_CLEAR =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 7h12v2H6z"/><path fill="currentColor" d="M8 10h8l-1 9H9z"/><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4z"/></svg>';
 const ICON_CANCEL_EDIT =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.3z"/></svg>';
+const SUMMARY_SOURCE_CHAR_LIMIT = 4200;
+const SUMMARY_OUTPUT_CHAR_LIMIT = 520;
 
 function isPendingMessage(msg) {
   return msg?.meta === "pending";
 }
 
 function stopGeneration() {
+  if (isSummaryInProgress && currentSummaryAbortController) {
+    currentSummaryAbortController.abort();
+    return;
+  }
   if (currentAbortController) {
     currentAbortController.abort();
   }
+}
+
+function setPendingAssistantStatus(pendingIndex, text) {
+  if (pendingIndex < 0) {
+    return;
+  }
+  const pendingMsg = currentContext.session.messages[pendingIndex];
+  if (!pendingMsg || pendingMsg.meta !== "pending") {
+    return;
+  }
+  pendingMsg.content = text || "";
+  renderMessages();
+}
+
+function buildFallbackSummary(condensedText, maxChars = SUMMARY_OUTPUT_CHAR_LIMIT) {
+  const sentences = (condensedText || "")
+    .split(/(?<=[.!?。！？])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!sentences.length) {
+    return "";
+  }
+
+  const lines = [];
+  let total = 0;
+  for (let i = 0; i < sentences.length && lines.length < 5; i += 1) {
+    const sentence = sentences[i].slice(0, 130);
+    const line = `- ${sentence}`;
+    if (total + line.length + 1 > maxChars) {
+      break;
+    }
+    lines.push(line);
+    total += line.length + 1;
+  }
+
+  return lines.join("\n");
+}
+
+function ensurePendingAssistantMessage(index) {
+  if (index >= 0 && currentContext.session.messages[index]?.meta === "pending") {
+    return index;
+  }
+
+  const safeIndex = Math.min(
+    Math.max(index, 0),
+    currentContext.session.messages.length
+  );
+  currentContext.session.messages.splice(safeIndex, 0, {
+    role: "assistant",
+    content: "",
+    meta: "pending"
+  });
+  return safeIndex;
+}
+
+function showSummaryStatus(message, options = {}) {
+  const { type = "info", animated = false } = options;
+  if (!els.summaryStatus) {
+    return;
+  }
+
+  els.summaryStatus.className = `summary-status active ${type}`;
+  els.summaryStatus.innerHTML = "";
+
+  const text = document.createElement("span");
+  text.textContent = message;
+  els.summaryStatus.appendChild(text);
+
+  if (animated) {
+    const dots = document.createElement("span");
+    dots.className = "pending-dots";
+    dots.innerHTML = "<span></span><span></span><span></span>";
+    els.summaryStatus.appendChild(dots);
+  }
+}
+
+function clearSummaryStatus() {
+  if (!els.summaryStatus) {
+    return;
+  }
+  els.summaryStatus.className = "summary-status";
+  els.summaryStatus.innerHTML = "";
+}
+
+function getSummaryFailureReason(err) {
+  if (!err) {
+    return currentDict.summaryFailedUnknown || "Unknown reason";
+  }
+  if (err.name === "AbortError") {
+    return currentDict.stopped || "Stopped";
+  }
+  const msg = String(err.message || err || "").trim();
+  return msg || currentDict.summaryFailedUnknown || "Unknown reason";
+}
+
+function detectSensitiveData(text) {
+  const value = String(text || "");
+  if (!value.trim()) {
+    return false;
+  }
+
+  const patterns = [
+    /\b\d{13,19}\b/, // possible card-like long numbers
+    /\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/, // possible US SSN-like pattern
+    /\b[A-Z][12]\d{8}\b/i, // possible TW ID pattern
+    /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}\b/, // email
+    /\b(password|passwd|api[_-]?key|secret|token|private key|信用卡|卡號|身份证|身分證|密碼)\b/i
+  ];
+  return patterns.some((p) => p.test(value));
+}
+
+async function appendAssistantNotice(text) {
+  if (!text) {
+    return;
+  }
+  currentContext.session.messages.push({ role: "assistant", content: text });
+  await persistSession();
+  renderMessages();
+}
+
+function mapSummaryFailureReason(reasonCode) {
+  const reasonMap = {
+    no_active_tab: "No active tab",
+    page_extract_failed: "Failed to extract page text",
+    empty_page_content: "Page text is empty",
+    missing_api_settings: "Missing API URL / key / model",
+    summary_empty: "Model returned empty summary",
+    heuristic_fallback: "Used local fallback summary"
+  };
+  return reasonMap[reasonCode] || currentDict.summaryFailedUnknown || "Unknown reason";
 }
 
 async function copyToClipboard(text) {
@@ -120,6 +260,9 @@ function findAssistantReplyIndex(userIndex) {
     if (msg?.meta === "snippet") {
       continue;
     }
+    if (msg?.meta === "summary-status") {
+      continue;
+    }
     if (msg?.role === "assistant") {
       return i;
     }
@@ -128,6 +271,16 @@ function findAssistantReplyIndex(userIndex) {
     }
   }
   return -1;
+}
+
+async function removeSummaryStatusAfterUser(userIndex) {
+  const nextIndex = userIndex + 1;
+  const nextMsg = currentContext.session.messages[nextIndex];
+  if (nextMsg?.role === "assistant" && nextMsg?.meta === "summary-status") {
+    currentContext.session.messages.splice(nextIndex, 1);
+    await persistSession();
+    renderMessages();
+  }
 }
 
 function createIconButton(iconSvg, title, onClick, className = "msg-btn") {
@@ -139,6 +292,201 @@ function createIconButton(iconSvg, title, onClick, className = "msg-btn") {
   btn.innerHTML = iconSvg;
   btn.addEventListener("click", onClick);
   return btn;
+}
+
+function condensePageText(rawText, maxChars = SUMMARY_SOURCE_CHAR_LIMIT) {
+  const normalized = (rawText || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const sentences = normalized.split(/(?<=[.!?。！？])\s+/).map((s) => s.trim());
+  const selected = [];
+  const seen = new Set();
+  let total = 0;
+
+  for (const sentence of sentences) {
+    if (!sentence || sentence.length < 20) {
+      continue;
+    }
+    const key = sentence.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const capped = sentence.slice(0, 220);
+    if (total + capped.length + 1 > maxChars) {
+      break;
+    }
+    selected.push(capped);
+    total += capped.length + 1;
+  }
+
+  if (!selected.length) {
+    return normalized.slice(0, maxChars);
+  }
+  return selected.join("\n");
+}
+
+async function extractPageSourceForSummary() {
+  if (!currentContext.tabId) {
+    return { ok: false, reason: "no_active_tab", title: "", text: "" };
+  }
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: currentContext.tabId },
+      func: () => {
+        const pickMainNode = () => {
+          const selectors = [
+            "article",
+            "main",
+            "[role='main']",
+            ".content",
+            "#content"
+          ];
+
+          let best = null;
+          let bestLen = 0;
+          for (const selector of selectors) {
+            const nodes = document.querySelectorAll(selector);
+            for (const node of nodes) {
+              const text = (node.innerText || "").trim();
+              if (text.length > bestLen) {
+                best = node;
+                bestLen = text.length;
+              }
+            }
+          }
+          return best || document.body;
+        };
+
+        const root = pickMainNode();
+        const text = (root?.innerText || "")
+          .replace(/\u00a0/g, " ")
+          .replace(/[ \t]+/g, " ")
+          .replace(/\n{2,}/g, "\n")
+          .trim();
+
+        return {
+          title: document.title || "",
+          text: text.slice(0, 18000)
+        };
+      }
+    });
+
+    const result = results?.[0]?.result || { title: "", text: "" };
+    return {
+      ok: true,
+      reason: "",
+      title: result.title || "",
+      text: result.text || ""
+    };
+  } catch {
+    return { ok: false, reason: "page_extract_failed", title: "", text: "" };
+  }
+}
+
+async function generatePageSummary(pageTitle, pageUrl, condensedText, signal) {
+  const settings = await getSettings();
+  const endpoint = normalizeApiEndpoint(settings.apiUrl);
+  if (!endpoint || !settings.apiKey || !settings.model || !condensedText) {
+    return {
+      ok: false,
+      reason: !condensedText ? "empty_page_content" : "missing_api_settings",
+      summary: ""
+    };
+  }
+
+  const body = {
+    model: settings.model,
+    temperature: 0.2,
+    top_p: 1,
+    max_tokens: 220,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You create compact factual webpage summaries for retrieval. Keep it precise and short."
+      },
+      {
+        role: "user",
+        content: [
+          "Summarize the webpage below for future question answering.",
+          "Output requirements:",
+          "- Use 4-6 bullet points.",
+          "- Include topic, key claims/facts, and important entities or numbers.",
+          "- No filler and no repetition.",
+          "- Total output under 520 characters if possible.",
+          "",
+          `Page title: ${pageTitle || "(none)"}`,
+          `Page URL: ${pageUrl || "(none)"}`,
+          "",
+          "Page text:",
+          condensedText
+        ].join("\n")
+      }
+    ]
+  };
+
+  const data = await requestChatCompletionsWithFallback(
+    endpoint,
+    settings.apiKey,
+    body,
+    signal,
+    () => {}
+  );
+  const summary = extractAssistantText(data).trim();
+  if (!summary) {
+    const fallback = buildFallbackSummary(condensedText);
+    if (fallback) {
+      return { ok: true, reason: "heuristic_fallback", summary: fallback };
+    }
+    return { ok: false, reason: "summary_empty", summary: "" };
+  }
+  return {
+    ok: true,
+    reason: "",
+    summary: summary.slice(0, SUMMARY_OUTPUT_CHAR_LIMIT)
+  };
+}
+
+async function ensurePageSummary(signal) {
+  const existing = currentContext.session?.pageSummary;
+  if (typeof existing === "string" && existing.trim()) {
+    return { ok: true, reason: "", summary: existing.trim() };
+  }
+
+  const source = await extractPageSourceForSummary();
+  if (!source.ok) {
+    return { ok: false, reason: source.reason || "page_extract_failed", summary: "" };
+  }
+
+  const condensed = condensePageText(source.text || "", SUMMARY_SOURCE_CHAR_LIMIT);
+  if (!condensed) {
+    return { ok: false, reason: "empty_page_content", summary: "" };
+  }
+
+  const summaryResult = await generatePageSummary(
+    source.title || "",
+    currentContext.pageUrl || "",
+    condensed,
+    signal
+  );
+  if (!summaryResult.ok || !summaryResult.summary) {
+    return {
+      ok: false,
+      reason: summaryResult.reason || "summary_empty",
+      summary: ""
+    };
+  }
+  currentContext.session.pageSummary = summaryResult.summary;
+  await persistSession();
+  return { ok: true, reason: "", summary: summaryResult.summary };
 }
 
 async function submitMessageWithContext(inputText, submittedSnippets, options = {}) {
@@ -156,26 +504,33 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
     let adjustedUserIndex = userIndex;
     let adjustedAssistantIndex = assistantIndex;
 
-    if (snippetStartIndex >= 0 && snippetEndIndex >= snippetStartIndex) {
-      const replacement = submittedSnippets.map((snippet) => ({
-        role: "user",
-        content: snippet,
-        meta: "snippet"
-      }));
-      const removedCount = snippetEndIndex - snippetStartIndex + 1;
-      currentContext.session.messages.splice(snippetStartIndex, removedCount, ...replacement);
-      const delta = replacement.length - removedCount;
-      adjustedUserIndex += delta;
+    // Normalize snippet attachment for this user message:
+    // 1) remove all currently attached snippet rows immediately before the user message,
+    // 2) insert exactly the new submitted snippets once.
+    let existingSnippetStart = adjustedUserIndex;
+    while (
+      existingSnippetStart > 0 &&
+      currentContext.session.messages[existingSnippetStart - 1]?.meta === "snippet"
+    ) {
+      existingSnippetStart -= 1;
+    }
+    const existingSnippetEnd = adjustedUserIndex - 1;
+    if (existingSnippetEnd >= existingSnippetStart) {
+      const removedCount = existingSnippetEnd - existingSnippetStart + 1;
+      currentContext.session.messages.splice(existingSnippetStart, removedCount);
+      adjustedUserIndex -= removedCount;
       if (adjustedAssistantIndex >= 0) {
-        adjustedAssistantIndex += delta;
+        adjustedAssistantIndex -= removedCount;
       }
-    } else if (submittedSnippets.length) {
+    }
+
+    if (submittedSnippets.length) {
       const replacement = submittedSnippets.map((snippet) => ({
         role: "user",
         content: snippet,
         meta: "snippet"
       }));
-      currentContext.session.messages.splice(userIndex, 0, ...replacement);
+      currentContext.session.messages.splice(adjustedUserIndex, 0, ...replacement);
       adjustedUserIndex += replacement.length;
       if (adjustedAssistantIndex >= 0) {
         adjustedAssistantIndex += replacement.length;
@@ -184,7 +539,7 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
 
     currentContext.session.messages[adjustedUserIndex].content = inputText;
 
-    if (assistantIndex >= 0) {
+    if (adjustedAssistantIndex >= 0) {
       currentContext.session.messages[adjustedAssistantIndex] = {
         role: "assistant",
         content: "",
@@ -215,18 +570,100 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
   await persistSession();
   renderMessages();
   renderSnippets();
+  setSendButtonMode(true);
+
+  const runtimeSettings = await getSettings();
+  const isPageSummaryEnabled = Boolean(runtimeSettings.enablePageSummary);
+  let pageSummary = isPageSummaryEnabled ? currentContext.session?.pageSummary || "" : "";
+  let summaryFailureReasonCode = "";
+  let summaryAttempted = false;
+
+  // Step 3: show summary progress inside assistant pending bubble.
+  if (isPageSummaryEnabled && !pageSummary) {
+    summaryAttempted = true;
+    isSummaryInProgress = true;
+    currentSummaryAbortController = new AbortController();
+    setPendingAssistantStatus(
+      pendingIndex,
+      currentDict.summaryPreparing || "Trying a quick page summary"
+    );
+
+    try {
+      const summaryResult = await ensurePageSummary(currentSummaryAbortController.signal);
+      pageSummary = summaryResult.summary || "";
+      summaryFailureReasonCode = summaryResult.reason || "";
+
+      if (summaryResult.ok && pageSummary) {
+        setPendingAssistantStatus(pendingIndex, currentDict.summarySuccess || "Page summary ready");
+      } else {
+        const reason = mapSummaryFailureReason(summaryFailureReasonCode);
+        setPendingAssistantStatus(
+          pendingIndex,
+          `${currentDict.summaryFailedPrefix || "Summary failed"}: ${reason}`
+        );
+        console.warn(`[summary] skipped/failed ${JSON.stringify({
+          reasonCode: summaryFailureReasonCode,
+          tabId: currentContext.tabId,
+          pageUrl: currentContext.pageUrl
+        })}`);
+      }
+    } catch (err) {
+      const reason = getSummaryFailureReason(err);
+      setPendingAssistantStatus(
+        pendingIndex,
+        `${currentDict.summaryFailedPrefix || "Summary failed"}: ${reason}`
+      );
+      console.warn(`[summary] exception ${JSON.stringify({
+        error: String(err?.message || err),
+        tabId: currentContext.tabId,
+        pageUrl: currentContext.pageUrl
+      })}`);
+      pageSummary = "";
+    } finally {
+      isSummaryInProgress = false;
+      currentSummaryAbortController = null;
+    }
+  }
+
+  // When summary step is shown, keep it as one assistant message,
+  // then open a new pending line for the actual answer.
+  if (summaryAttempted) {
+    const summaryMsg = currentContext.session.messages[pendingIndex];
+    const summaryText = (summaryMsg?.content || "").trim();
+    currentContext.session.messages[pendingIndex] = {
+      role: "assistant",
+      content: summaryText || `${currentDict.summaryFailedPrefix || "Summary failed"}: ${currentDict.summaryFailedUnknown || "Unknown reason"}`,
+      meta: "summary-status"
+    };
+
+    pendingIndex += 1;
+    currentContext.session.messages.splice(pendingIndex, 0, {
+      role: "assistant",
+      content: "",
+      meta: "pending"
+    });
+
+    await persistSession();
+    renderMessages();
+  }
+
+  pendingIndex = ensurePendingAssistantMessage(pendingIndex);
 
   currentAbortController = new AbortController();
-  setSendButtonMode(true);
 
   try {
     const answer = await askModel(
       inputText,
       historyMessages,
       submittedSnippets,
+      pageSummary,
       currentAbortController.signal,
       (partialText) => {
-        currentContext.session.messages[pendingIndex].content = partialText;
+        const pendingMsg = currentContext.session.messages[pendingIndex];
+        if (!pendingMsg || pendingMsg.meta !== "pending") {
+          return;
+        }
+        pendingMsg.content = partialText;
         renderMessages();
       }
     );
@@ -244,6 +681,7 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
   } finally {
     currentAbortController = null;
     setSendButtonMode(false);
+    clearSummaryStatus();
   }
 }
 
@@ -255,6 +693,9 @@ async function resendMessageAt(index) {
   if (!target || target.role !== "user" || target.meta === "snippet") {
     return;
   }
+
+  await removeSummaryStatusAfterUser(index);
+
   const submittedSnippets = getAttachedSnippetsBefore(index);
   const conversationStart = getConversationStartIndex(index);
   const historyMessages = currentContext.session.messages.slice(0, conversationStart);
@@ -275,6 +716,9 @@ async function editMessageAt(index) {
   if (!target || target.role !== "user" || target.meta === "snippet") {
     return;
   }
+
+  await removeSummaryStatusAfterUser(index);
+
   const conversationStart = getConversationStartIndex(index);
   editingContext = {
     userIndex: index,
@@ -332,8 +776,11 @@ function renderMessages() {
 
   for (let i = 0; i < messages.length; i += 1) {
     const msg = messages[i];
+    if (!msg || typeof msg !== "object") {
+      continue;
+    }
     const div = document.createElement("div");
-    const isSnippet = msg.meta === "snippet";
+    const isSnippet = msg?.meta === "snippet";
     const isPending = isPendingMessage(msg);
     div.className = `msg ${isSnippet ? "snippet" : msg.role === "user" ? "user" : "assistant"}`;
 
@@ -730,7 +1177,7 @@ async function requestChatCompletionsWithFallback(endpoint, apiKey, body, signal
   return callChatCompletions(endpoint, apiKey, body, signal);
 }
 
-async function askModel(inputText, historyMessages, selectedSnippets, signal, onDelta) {
+async function askModel(inputText, historyMessages, selectedSnippets, pageSummary, signal, onDelta) {
   const settings = await getSettings();
   const endpoint = normalizeApiEndpoint(settings.apiUrl);
   if (!endpoint || !settings.apiKey || !settings.model) {
@@ -745,6 +1192,7 @@ async function askModel(inputText, historyMessages, selectedSnippets, signal, on
     {
       history: historyToText(historyForPrompt),
       selected_text: snippetsToText(selectedSnippets),
+      page_summary: pageSummary || "",
       user_query: inputText
     },
     lang
@@ -793,6 +1241,7 @@ async function askModel(inputText, historyMessages, selectedSnippets, signal, on
       {
         history: historyToText(historyForPrompt.slice(-10)),
         selected_text: snippetsToText(selectedSnippets, 600, 2400),
+        page_summary: pageSummary || "",
         user_query: inputText
       },
       lang
@@ -847,12 +1296,39 @@ async function onSend() {
     return;
   }
 
+  const runtimeSettings = await getSettings();
+  if (!runtimeSettings.legalConsentAccepted) {
+    await appendAssistantNotice(
+      currentDict.consentNotAcceptedMessage ||
+        "Please open Settings and accept the compliance notice before sending messages."
+    );
+    return;
+  }
+
   const submittedSnippets = [...currentContext.session.snippets];
+  if (runtimeSettings.sensitiveDataReminderEnabled !== false) {
+    const sensitiveSource = `${inputText}\n${submittedSnippets.join("\n")}`;
+    if (detectSensitiveData(sensitiveSource)) {
+      const confirmed = window.confirm(
+        currentDict.sensitiveReminderConfirm ||
+          "Potential sensitive data detected. Continue sending to your configured API provider?"
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+  }
+
   await submitMessageWithContext(inputText, submittedSnippets, editingContext || {});
 }
 
 async function clearCurrentPageHistory() {
-  currentContext.session = { messages: [], snippets: [] };
+  const preservedSummary = currentContext.session?.pageSummary;
+  currentContext.session = {
+    messages: [],
+    snippets: [],
+    ...(preservedSummary ? { pageSummary: preservedSummary } : {})
+  };
   editingContext = null;
   els.input.value = "";
   setEditingMode(false);

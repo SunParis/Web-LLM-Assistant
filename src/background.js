@@ -9,6 +9,31 @@ import {
 const CONTEXT_MENU_ID = "ask-ai-about-selection";
 let hasActionClickFallbackListener = false;
 
+function isUserGestureRestrictionError(err) {
+  const message = String(err?.message || err || "").toLowerCase();
+  return (
+    message.includes("sidepanel.open()") &&
+    (message.includes("user gesture") || message.includes("user activation"))
+  );
+}
+
+async function openSidePanelSafely(tabId, source) {
+  try {
+    await chrome.sidePanel.open({ tabId });
+    return true;
+  } catch (err) {
+    const message = String(err?.message || err || "");
+    if (isUserGestureRestrictionError(err)) {
+      console.warn(
+        `[Web LLM Assistant] Skip side panel open from ${source}: ${message}`
+      );
+      return false;
+    }
+    console.error(`[Web LLM Assistant] side panel open failed from ${source}:`, err);
+    return false;
+  }
+}
+
 function removeContextMenu(menuId) {
   return new Promise((resolve) => {
     chrome.contextMenus.remove(menuId, () => {
@@ -51,10 +76,13 @@ async function ensureContextMenu() {
 }
 
 async function setupActionOpenSidePanel() {
+  const { enableSidePanelShortcut } = await getSettings();
+
   if (chrome.sidePanel?.setPanelBehavior) {
     try {
-      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-      return;
+      await chrome.sidePanel.setPanelBehavior({
+        openPanelOnActionClick: Boolean(enableSidePanelShortcut)
+      });
     } catch {
       // Fallback below.
     }
@@ -62,10 +90,21 @@ async function setupActionOpenSidePanel() {
 
   if (!hasActionClickFallbackListener) {
     chrome.action.onClicked.addListener(async (tab) => {
-      if (!tab?.id) {
-        return;
+      try {
+        if (!tab?.id) {
+          return;
+        }
+
+        // When native action behavior is enabled, browser handles opening.
+        const settings = await getSettings();
+        if (settings.enableSidePanelShortcut) {
+          return;
+        }
+
+        await openSidePanelSafely(tab.id, "action_click");
+      } catch (err) {
+        console.error("[Web LLM Assistant] action click failed:", err);
       }
-      await chrome.sidePanel.open({ tabId: tab.id });
     });
     hasActionClickFallbackListener = true;
   }
@@ -102,7 +141,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 
   // Must run immediately in the user-gesture call stack.
-  const openPanelPromise = chrome.sidePanel.open({ tabId: tab.id });
+  const openPanelPromise = openSidePanelSafely(tab.id, "context_menu");
 
   await appendSnippet(tab.id, tab.url, text);
 
@@ -127,12 +166,21 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 chrome.storage.onChanged.addListener(async (changes, area) => {
-  if (area !== "local" || !changes.displayLanguage) {
+  if (
+    area !== "local" ||
+    (!changes.displayLanguage && !changes.enableSidePanelShortcut)
+  ) {
     return;
   }
+
   try {
-    await ensureContextMenu();
+    if (changes.displayLanguage) {
+      await ensureContextMenu();
+    }
+    if (changes.enableSidePanelShortcut) {
+      await setupActionOpenSidePanel();
+    }
   } catch {
-    // Avoid uncaught errors from context-menu timing races.
+    // Avoid uncaught errors from timing races during setting updates.
   }
 });

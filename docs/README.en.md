@@ -15,6 +15,11 @@ A page-aware browser extension that lets you chat with any OpenAI-compatible LLM
 - Add selected webpage text as context via right-click menu.
 - Edit, resend, copy, and delete chat messages.
 - Stop generation while streaming.
+- Automatic per-page summary generation before answering (with fallback if summary fails).
+- Summary status hints in assistant messages ("trying", "success", "failed").
+- Two-step assistant output: summary status line, then final answer line.
+- Resend/edit removes temporary summary-status lines while keeping cached summary.
+- Clearing current page chat keeps cached page summary for reuse.
 - Per-page session history (stored in extension session storage).
 - Configurable API endpoint, API key, model, prompt, and sampling params.
 - UI language options:
@@ -63,7 +68,45 @@ A page-aware browser extension that lets you chat with any OpenAI-compatible LLM
 ## Notes
 
 - This project uses `chrome.storage.local` for settings and `chrome.storage.session` for per-page chat sessions.
+- Cached `pageSummary` is kept when clearing current-page chat history.
+- Cached `pageSummary` is removed when the tab is closed (tab session cleanup).
 - Host permissions are currently set to `<all_urls>` for broad webpage support.
+
+## Legal & Compliance Notice
+
+- This project is not legal advice and does not guarantee legal compliance in all jurisdictions.
+- Users are responsible for ensuring they have the right to process and send webpage content to third-party LLM providers.
+- Do not submit personal data, sensitive data, confidential information, or copyrighted content unless you have a lawful basis and permission.
+- Respect website Terms of Service, robots/policy restrictions, and applicable platform rules.
+- You are responsible for complying with local laws (for example: privacy, data protection, copyright, and consumer protection laws).
+
+### Suggested User-Facing Disclaimer
+
+You can display a short notice in your options page or store listing:
+
+"This extension may send selected webpage text and generated page summaries to your configured LLM API provider. Please do not submit personal, confidential, or copyrighted data without proper authorization. By using this extension, you are responsible for complying with applicable laws and website terms."
+
+## Data Retention Strategy
+
+- `chrome.storage.local`:
+   - Stores settings only (API endpoint, model, language, consent flag, reminder toggles, prompt settings).
+- `chrome.storage.session`:
+   - Stores per-tab/page chat session (`messages`, `snippets`, cached `pageSummary`).
+   - `pageSummary` is kept when user clears current-page chat.
+   - Session data is removed when the tab closes.
+- No project-side backend database is used by this extension itself.
+
+## Data Flow Diagram
+
+```mermaid
+flowchart TD
+   U[User Input or Selected Text] --> SP[Side Panel]
+   SP --> SS[Session Storage\nmessages/snippets/pageSummary]
+   SP -->|Prompt + Optional Summary| API[Configured LLM API Provider]
+   API --> SP
+   OPT[Options Page] --> LS[Local Storage\nsettings/consent/reminder]
+   LS --> SP
+```
 
 ## License
 

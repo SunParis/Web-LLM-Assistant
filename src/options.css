@@ -82,6 +82,46 @@ label {
   line-height: 1.4;
 }
 
+.compliance-section {
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--input-bg) 82%, var(--bg) 18%);
+}
+
+.feature-section {
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--input-bg) 82%, var(--bg) 18%);
+}
+
+#enable-sidepanel-shortcut-help {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+#legal-consent-help {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 input,
 textarea,
 select,

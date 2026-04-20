@@ -9,6 +9,10 @@ export { SUPPORTED_LANGUAGES };
 export const DEFAULT_SETTINGS = {
   displayLanguage: "zh-Hant",
   themeMode: "system",
+  enableSidePanelShortcut: false,
+  enablePageSummary: false,
+  legalConsentAccepted: false,
+  sensitiveDataReminderEnabled: true,
   apiUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "gpt-4o-mini",
@@ -96,11 +100,13 @@ export function fillPromptTemplate(template, vars, lang) {
   const normalized = {
     history: vars?.history?.trim() || emptyMarker(lang),
     selected_text: vars?.selected_text?.trim() || emptyMarker(lang),
+    page_summary: vars?.page_summary?.trim() || "",
     user_query: vars?.user_query?.trim() || emptyMarker(lang)
   };
 
   return template
     .replaceAll("{{history}}", normalized.history)
     .replaceAll("{{selected_text}}", normalized.selected_text)
+    .replaceAll("{{page_summary}}", normalized.page_summary)
     .replaceAll("{{user_query}}", normalized.user_query);
 }
