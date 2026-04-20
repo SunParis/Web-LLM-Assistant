@@ -4,6 +4,8 @@ export default {
     sidepanelTitle: "Web LLM Assistant",
     placeholderInput: "Ask something...",
     send: "Send",
+    edit: "Edit",
+    resend: "Resend",
     stop: "Stop",
     copy: "Copy",
     delete: "Delete",

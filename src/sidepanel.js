@@ -27,8 +27,13 @@ let currentContext = {
 
 let currentDict = getDict("zh-Hant");
 let currentAbortController = null;
+let editingContext = null;
 const ICON_SEND =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 20.25V14.5L10.5 12L3 9.5V3.75L21 12L3 20.25Z"/></svg>';
+const ICON_EDIT =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75l11-11.03-3.75-3.75L3 17.25Zm18-11.5a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75L21 5.75Z"/></svg>';
+const ICON_RESEND =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 5V2L7 6l5 4V7c3.31 0 6 2.69 6 6a6 6 0 0 1-10.24 4.24l-1.42 1.42A8 8 0 0 0 20 13c0-4.42-3.58-8-8-8Z"/><path fill="currentColor" d="M6 13a6 6 0 0 1 10.24-4.24l1.42-1.42A8 8 0 0 0 4 13a7.96 7.96 0 0 0 2.34 5.66L7.76 17.24A5.96 5.96 0 0 1 6 13Z"/></svg>';
 const ICON_STOP =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>';
 const ICON_COPY =
@@ -77,6 +82,51 @@ async function deleteMessageAt(index) {
   renderMessages();
 }
 
+function getAttachedSnippetsBefore(index) {
+  const snippets = [];
+  let i = index - 1;
+  while (i >= 0 && currentContext.session.messages[i]?.meta === "snippet") {
+    snippets.unshift(currentContext.session.messages[i].content);
+    i -= 1;
+  }
+  return snippets;
+}
+
+function getConversationStartIndex(index) {
+  let i = index;
+  while (i > 0 && currentContext.session.messages[i - 1]?.meta === "snippet") {
+    i -= 1;
+  }
+  return i;
+}
+
+function getAttachedSnippetRange(index) {
+  let start = index;
+  while (start > 0 && currentContext.session.messages[start - 1]?.meta === "snippet") {
+    start -= 1;
+  }
+  return {
+    start,
+    end: index - 1
+  };
+}
+
+function findAssistantReplyIndex(userIndex) {
+  for (let i = userIndex + 1; i < currentContext.session.messages.length; i += 1) {
+    const msg = currentContext.session.messages[i];
+    if (msg?.meta === "snippet") {
+      continue;
+    }
+    if (msg?.role === "assistant") {
+      return i;
+    }
+    if (msg?.role === "user") {
+      break;
+    }
+  }
+  return -1;
+}
+
 function createIconButton(iconSvg, title, onClick, className = "msg-btn") {
   const btn = document.createElement("button");
   btn.className = className;
@@ -86,6 +136,154 @@ function createIconButton(iconSvg, title, onClick, className = "msg-btn") {
   btn.innerHTML = iconSvg;
   btn.addEventListener("click", onClick);
   return btn;
+}
+
+async function submitMessageWithContext(inputText, submittedSnippets, options = {}) {
+  const {
+    historyMessages = [...currentContext.session.messages],
+    userIndex = -1,
+    assistantIndex = -1,
+    snippetStartIndex = -1,
+    snippetEndIndex = -1
+  } = options;
+
+  let pendingIndex = assistantIndex;
+
+  if (userIndex >= 0) {
+    let adjustedUserIndex = userIndex;
+    let adjustedAssistantIndex = assistantIndex;
+
+    if (snippetStartIndex >= 0 && snippetEndIndex >= snippetStartIndex) {
+      const replacement = submittedSnippets.map((snippet) => ({
+        role: "user",
+        content: snippet,
+        meta: "snippet"
+      }));
+      const removedCount = snippetEndIndex - snippetStartIndex + 1;
+      currentContext.session.messages.splice(snippetStartIndex, removedCount, ...replacement);
+      const delta = replacement.length - removedCount;
+      adjustedUserIndex += delta;
+      if (adjustedAssistantIndex >= 0) {
+        adjustedAssistantIndex += delta;
+      }
+    } else if (submittedSnippets.length) {
+      const replacement = submittedSnippets.map((snippet) => ({
+        role: "user",
+        content: snippet,
+        meta: "snippet"
+      }));
+      currentContext.session.messages.splice(userIndex, 0, ...replacement);
+      adjustedUserIndex += replacement.length;
+      if (adjustedAssistantIndex >= 0) {
+        adjustedAssistantIndex += replacement.length;
+      }
+    }
+
+    currentContext.session.messages[adjustedUserIndex].content = inputText;
+
+    if (assistantIndex >= 0) {
+      currentContext.session.messages[adjustedAssistantIndex] = {
+        role: "assistant",
+        content: "",
+        meta: "pending"
+      };
+      pendingIndex = adjustedAssistantIndex;
+    } else {
+      pendingIndex = adjustedUserIndex + 1;
+      currentContext.session.messages.splice(pendingIndex, 0, {
+        role: "assistant",
+        content: "",
+        meta: "pending"
+      });
+    }
+  } else {
+    for (const snippet of submittedSnippets) {
+      currentContext.session.messages.push({ role: "user", content: snippet, meta: "snippet" });
+    }
+    currentContext.session.messages.push({ role: "user", content: inputText });
+    currentContext.session.messages.push({ role: "assistant", content: "", meta: "pending" });
+    pendingIndex = currentContext.session.messages.length - 1;
+  }
+
+  currentContext.session.snippets = [];
+  els.input.value = "";
+  editingContext = null;
+  await persistSession();
+  renderMessages();
+  renderSnippets();
+
+  currentAbortController = new AbortController();
+  setSendButtonMode(true);
+
+  try {
+    const answer = await askModel(
+      inputText,
+      historyMessages,
+      submittedSnippets,
+      currentAbortController.signal,
+      (partialText) => {
+        currentContext.session.messages[pendingIndex].content = partialText;
+        renderMessages();
+      }
+    );
+    currentContext.session.messages[pendingIndex] = { role: "assistant", content: answer };
+    await persistSession();
+    renderMessages();
+  } catch (err) {
+    const isAbort = err?.name === "AbortError";
+    currentContext.session.messages[pendingIndex] = {
+      role: "assistant",
+      content: isAbort ? currentDict.stopped : `${currentDict.errorPrefix}: ${err.message}`
+    };
+    await persistSession();
+    renderMessages();
+  } finally {
+    currentAbortController = null;
+    setSendButtonMode(false);
+  }
+}
+
+async function resendMessageAt(index) {
+  if (currentAbortController || els.sendBtn.dataset.mode === "stop") {
+    return;
+  }
+  const target = currentContext.session.messages[index];
+  if (!target || target.role !== "user" || target.meta === "snippet") {
+    return;
+  }
+  const submittedSnippets = getAttachedSnippetsBefore(index);
+  const conversationStart = getConversationStartIndex(index);
+  const historyMessages = currentContext.session.messages.slice(0, conversationStart);
+  const assistantIndex = findAssistantReplyIndex(index);
+  await submitMessageWithContext(target.content, submittedSnippets, {
+    historyMessages,
+    userIndex: index,
+    assistantIndex,
+    ...getAttachedSnippetRange(index)
+  });
+}
+
+async function editMessageAt(index) {
+  if (currentAbortController || els.sendBtn.dataset.mode === "stop") {
+    return;
+  }
+  const target = currentContext.session.messages[index];
+  if (!target || target.role !== "user" || target.meta === "snippet") {
+    return;
+  }
+  const submittedSnippets = getAttachedSnippetsBefore(index);
+  const conversationStart = getConversationStartIndex(index);
+  editingContext = {
+    userIndex: index,
+    assistantIndex: findAssistantReplyIndex(index),
+    historyMessages: currentContext.session.messages.slice(0, conversationStart),
+    ...getAttachedSnippetRange(index)
+  };
+  currentContext.session.snippets = [...submittedSnippets];
+  els.input.value = target.content;
+  await persistSession();
+  renderSnippets();
+  els.input.focus();
 }
 
 function setSendButtonMode(isGenerating) {
@@ -125,6 +323,12 @@ function renderMessages() {
     content.className = "msg-content";
     if (isPending) {
       content.classList.add("pending");
+      if (msg.content) {
+        const text = document.createElement("span");
+        text.className = "pending-text";
+        text.textContent = msg.content;
+        content.appendChild(text);
+      }
       const dots = document.createElement("span");
       dots.className = "pending-dots";
       dots.innerHTML = "<span></span><span></span><span></span>";
@@ -137,6 +341,17 @@ function renderMessages() {
     if (!isPending && !isSnippet) {
       const actions = document.createElement("div");
       actions.className = "msg-actions";
+
+      if (msg.role === "user") {
+        const editBtn = createIconButton(ICON_EDIT, currentDict.edit, async () => {
+          await editMessageAt(i);
+        });
+        const resendBtn = createIconButton(ICON_RESEND, currentDict.resend, async () => {
+          await resendMessageAt(i);
+        });
+        actions.appendChild(editBtn);
+        actions.appendChild(resendBtn);
+      }
 
       const copyBtn = createIconButton(ICON_COPY, currentDict.copy, async () => {
         await copyToClipboard(msg.content);
@@ -369,7 +584,130 @@ async function callChatCompletions(endpoint, apiKey, body, signal) {
   return res.json();
 }
 
-async function askModel(inputText, historyMessages, selectedSnippets, signal) {
+function extractStreamDelta(data) {
+  const delta = data?.choices?.[0]?.delta;
+  if (typeof delta?.content === "string") {
+    return delta.content;
+  }
+
+  if (Array.isArray(delta?.content)) {
+    return delta.content
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (typeof item?.text === "string") {
+          return item.text;
+        }
+        return "";
+      })
+      .join("");
+  }
+
+  if (typeof delta?.reasoning_content === "string") {
+    return delta.reasoning_content;
+  }
+
+  const text = data?.choices?.[0]?.text;
+  if (typeof text === "string") {
+    return text;
+  }
+
+  return "";
+}
+
+async function streamChatCompletions(endpoint, apiKey, body, signal, onDelta) {
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({ ...body, stream: true }),
+    signal
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`API ${res.status}: ${errorText}`);
+  }
+
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream") || !res.body) {
+    return res.json();
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamedText = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const lines = event
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("data:"));
+
+      for (const line of lines) {
+        const dataText = line.slice(5).trim();
+        if (!dataText || dataText === "[DONE]") {
+          continue;
+        }
+
+        let data;
+        try {
+          data = JSON.parse(dataText);
+        } catch {
+          continue;
+        }
+
+        if (data?.error) {
+          const msg = data?.error?.message || JSON.stringify(data.error);
+          throw new Error(`API error payload: ${msg}`);
+        }
+
+        const chunk = extractStreamDelta(data);
+        if (chunk) {
+          streamedText += chunk;
+          onDelta(streamedText);
+        }
+      }
+    }
+  }
+
+  return {
+    choices: [
+      {
+        message: {
+          content: streamedText
+        }
+      }
+    ]
+  };
+}
+
+async function requestChatCompletionsWithFallback(endpoint, apiKey, body, signal, onDelta) {
+  const streamed = await streamChatCompletions(endpoint, apiKey, body, signal, onDelta);
+  const streamedText = extractAssistantText(streamed);
+  if (streamedText) {
+    return streamed;
+  }
+
+  // Some OpenAI-compatible providers accept stream=true but end with an empty payload.
+  return callChatCompletions(endpoint, apiKey, body, signal);
+}
+
+async function askModel(inputText, historyMessages, selectedSnippets, signal, onDelta) {
   const settings = await getSettings();
   const endpoint = normalizeApiEndpoint(settings.apiUrl);
   if (!endpoint || !settings.apiKey || !settings.model) {
@@ -402,7 +740,13 @@ async function askModel(inputText, historyMessages, selectedSnippets, signal) {
     ]
   };
 
-  const data = await callChatCompletions(endpoint, settings.apiKey, body, signal);
+  const data = await requestChatCompletionsWithFallback(
+    endpoint,
+    settings.apiKey,
+    body,
+    signal,
+    onDelta
+  );
   if (data?.error) {
     const msg = data?.error?.message || JSON.stringify(data.error);
     throw new Error(`API error payload: ${msg}`);
@@ -444,7 +788,13 @@ async function askModel(inputText, historyMessages, selectedSnippets, signal) {
       ]
     };
 
-    const retryData = await callChatCompletions(endpoint, settings.apiKey, retryBody, signal);
+    const retryData = await requestChatCompletionsWithFallback(
+      endpoint,
+      settings.apiKey,
+      retryBody,
+      signal,
+      onDelta
+    );
     if (retryData?.error) {
       const msg = retryData?.error?.message || JSON.stringify(retryData.error);
       throw new Error(`API error payload: ${msg}`);
@@ -474,45 +824,8 @@ async function onSend() {
     return;
   }
 
-  const history = [...currentContext.session.messages];
   const submittedSnippets = [...currentContext.session.snippets];
-  for (const snippet of submittedSnippets) {
-    currentContext.session.messages.push({ role: "user", content: snippet, meta: "snippet" });
-  }
-  currentContext.session.messages.push({ role: "user", content: inputText });
-  currentContext.session.messages.push({ role: "assistant", content: "...", meta: "pending" });
-  currentContext.session.snippets = [];
-  els.input.value = "";
-  await persistSession();
-  renderMessages();
-  renderSnippets();
-
-  currentAbortController = new AbortController();
-  setSendButtonMode(true);
-  const pendingIndex = currentContext.session.messages.length - 1;
-
-  try {
-    const answer = await askModel(
-      inputText,
-      history,
-      submittedSnippets,
-      currentAbortController.signal
-    );
-    currentContext.session.messages[pendingIndex] = { role: "assistant", content: answer };
-    await persistSession();
-    renderMessages();
-  } catch (err) {
-    const isAbort = err?.name === "AbortError";
-    currentContext.session.messages[pendingIndex] = {
-      role: "assistant",
-      content: isAbort ? currentDict.stopped : `${currentDict.errorPrefix}: ${err.message}`
-    };
-    await persistSession();
-    renderMessages();
-  } finally {
-    currentAbortController = null;
-    setSendButtonMode(false);
-  }
+  await submitMessageWithContext(inputText, submittedSnippets, editingContext || {});
 }
 
 async function clearCurrentPageHistory() {

@@ -4,6 +4,8 @@ export default {
     sidepanelTitle: "網頁 LLM 助手",
     placeholderInput: "輸入你的問題...",
     send: "送出",
+    edit: "編輯",
+    resend: "重新送出",
     stop: "停止",
     copy: "複製",
     delete: "刪除",

@@ -155,7 +155,7 @@ header h1 {
 }
 
 #messages {
-  padding: 10px 24px;
+  padding: 10px 34px;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -166,16 +166,28 @@ header h1 {
 .msg {
   border-radius: 10px;
   padding: 8px 10px;
-  max-width: 95%;
+  max-width: 78%;
   white-space: pre-wrap;
   line-height: 1.45;
   font-size: 13px;
   position: relative;
   overflow: visible;
+  margin-bottom: 22px;
+}
+
+.msg::after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  top: -6px;
+  bottom: -28px;
 }
 
 .msg-content {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .msg.user {
@@ -201,10 +213,15 @@ header h1 {
   min-height: 16px;
 }
 
+.pending-text {
+  white-space: pre-wrap;
+}
+
 .pending-dots {
   display: inline-flex;
   gap: 4px;
   align-items: center;
+  margin-left: 3px;
 }
 
 .pending-dots span {
@@ -238,21 +255,21 @@ header h1 {
 
 .msg-actions {
   display: inline-flex;
-  gap: 6px;
+  gap: 3px;
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  top: calc(100% + 4px);
+  transform: none;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.15s ease;
 }
 
 .msg.assistant .msg-actions {
-  right: -30px;
+  left: 0;
 }
 
 .msg.user .msg-actions {
-  left: -30px;
+  right: 0;
 }
 
 .msg:hover .msg-actions,
