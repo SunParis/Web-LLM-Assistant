@@ -16,6 +16,7 @@ const els = {
   snippetLabel: document.getElementById("snippet-label"),
   snippetList: document.getElementById("snippet-list"),
   input: document.getElementById("user-input"),
+  cancelEditBtn: document.getElementById("cancel-edit-btn"),
   sendBtn: document.getElementById("send-btn")
 };
 
@@ -208,6 +209,7 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
   currentContext.session.snippets = [];
   els.input.value = "";
   editingContext = null;
+  setEditingMode(false);
   await persistSession();
   renderMessages();
   renderSnippets();
@@ -271,7 +273,6 @@ async function editMessageAt(index) {
   if (!target || target.role !== "user" || target.meta === "snippet") {
     return;
   }
-  const submittedSnippets = getAttachedSnippetsBefore(index);
   const conversationStart = getConversationStartIndex(index);
   editingContext = {
     userIndex: index,
@@ -279,10 +280,12 @@ async function editMessageAt(index) {
     historyMessages: currentContext.session.messages.slice(0, conversationStart),
     ...getAttachedSnippetRange(index)
   };
-  currentContext.session.snippets = [...submittedSnippets];
+  // Do not auto-carry old snippets when editing a sent message.
+  currentContext.session.snippets = [];
   els.input.value = target.content;
   await persistSession();
   renderSnippets();
+  setEditingMode(true);
   els.input.focus();
 }
 
@@ -298,6 +301,19 @@ function setSendButtonMode(isGenerating) {
   els.sendBtn.title = currentDict.send;
   els.sendBtn.setAttribute("aria-label", currentDict.send);
   els.sendBtn.innerHTML = ICON_SEND;
+}
+
+function setEditingMode(isEditing) {
+  document.body.classList.toggle("editing", isEditing);
+}
+
+async function cancelEditing() {
+  editingContext = null;
+  currentContext.session.snippets = [];
+  els.input.value = "";
+  await persistSession();
+  renderSnippets();
+  setEditingMode(false);
 }
 
 function renderMessages() {
@@ -404,6 +420,8 @@ function applyText() {
   els.title.textContent = currentDict.sidepanelTitle;
   els.input.placeholder = currentDict.placeholderInput;
   els.snippetLabel.textContent = currentDict.selectedText;
+  els.cancelEditBtn.title = currentDict.cancelEdit || "Cancel edit";
+  els.cancelEditBtn.setAttribute("aria-label", currentDict.cancelEdit || "Cancel edit");
   els.clearHistoryBtn.innerHTML = ICON_CLEAR;
   els.clearHistoryBtn.title = currentDict.clearHistory;
   els.clearHistoryBtn.setAttribute("aria-label", currentDict.clearHistory);
@@ -830,6 +848,9 @@ async function onSend() {
 
 async function clearCurrentPageHistory() {
   currentContext.session = { messages: [], snippets: [] };
+  editingContext = null;
+  els.input.value = "";
+  setEditingMode(false);
   await persistSession();
   renderMessages();
   renderSnippets();
@@ -858,6 +879,7 @@ async function bootstrap() {
   renderSnippets();
 
   els.sendBtn.addEventListener("click", onSend);
+  els.cancelEditBtn.addEventListener("click", cancelEditing);
   els.clearHistoryBtn.addEventListener("click", clearCurrentPageHistory);
   els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

@@ -6,6 +6,7 @@ export default {
     send: "发送",
     edit: "编辑",
     resend: "重新发送",
+    cancelEdit: "取消编辑",
     stop: "停止",
     copy: "复制",
     delete: "删除",

@@ -182,6 +182,7 @@ header h1 {
   right: -8px;
   top: -6px;
   bottom: -28px;
+  pointer-events: none;
 }
 
 .msg-content {
@@ -207,6 +208,7 @@ header h1 {
   border: 1px dashed var(--snippet-border);
   color: var(--snippet-text);
   font-size: 12px;
+  margin-bottom: 1px;
 }
 
 .msg-content.pending {
@@ -257,11 +259,12 @@ header h1 {
   display: inline-flex;
   gap: 3px;
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 3px);
   transform: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease, visibility 0s linear 0.18s;
+  z-index: 2;
 }
 
 .msg.assistant .msg-actions {
@@ -273,9 +276,11 @@ header h1 {
 }
 
 .msg:hover .msg-actions,
-.msg-actions:hover {
+.msg-actions:hover,
+.msg:focus-within .msg-actions {
   opacity: 1;
   visibility: visible;
+  transition-delay: 0s;
 }
 
 .msg-btn {
@@ -388,8 +393,28 @@ header h1 {
 
 .input-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
+}
+
+#cancel-edit-btn {
+  align-self: end;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--button-subtle);
+  color: var(--button-subtle-text);
+  height: 30px;
+  width: 30px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+}
+
+body.editing #cancel-edit-btn {
+  display: inline-flex;
 }
 
 #user-input {

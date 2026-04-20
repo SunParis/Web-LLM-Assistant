@@ -6,6 +6,7 @@ export default {
     send: "Send",
     edit: "Edit",
     resend: "Resend",
+    cancelEdit: "Cancel edit",
     stop: "Stop",
     copy: "Copy",
     delete: "Delete",

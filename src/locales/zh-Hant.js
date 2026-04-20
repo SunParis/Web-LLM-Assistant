@@ -6,6 +6,7 @@ export default {
     send: "送出",
     edit: "編輯",
     resend: "重新送出",
+    cancelEdit: "取消編輯",
     stop: "停止",
     copy: "複製",
     delete: "刪除",
