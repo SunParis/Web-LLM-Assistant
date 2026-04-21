@@ -43,7 +43,7 @@ export default {
       "Off by default. If enabled, the extension tries to summarize the current page before answering.",
     legalConsentLabel: "I understand and agree to the data/compliance notice",
     legalConsentHelp:
-      "Before using this extension, confirm you have the right to process and send webpage content to your configured API provider.",
+      "Before using this extension, confirm you have the right to process and send webpage content to your configured API provider. This extension does not upload data to any project-operated cloud/backend and does not proactively collect personal data. Except when you explicitly send a question, only the text you choose to send is forwarded to your configured API provider.",
     legalConsentRequired: "Please accept the compliance notice before saving settings.",
     sensitiveReminderLabel: "Warn before sending privacy/confidential content",
     sensitiveReminderHelp:

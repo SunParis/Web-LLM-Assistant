@@ -42,7 +42,7 @@ export default {
     enablePageSummaryHelp: "默认关闭。开启后，提问前会先尝试生成当前页面摘要。",
     legalConsentLabel: "我已了解并同意数据/合规声明",
     legalConsentHelp:
-      "使用前请确认你有权处理并将网页内容发送到你配置的 API 服务商。",
+      "使用前请确认你有权处理并将网页内容发送到你配置的 API 服务商。本扩展不会把数据上传到项目方自建云端/后端，也不会主动收集个人资料。除非你明确发送提问，否则不会对外传送内容；发送时也仅会把你主动询问的文字发到你配置的 API 服务商。",
     legalConsentRequired: "请先勾选同意合规声明，再保存设置。",
     sensitiveReminderLabel: "发送前提醒可能含隐私/机密内容",
     sensitiveReminderHelp:

@@ -49,7 +49,7 @@ A page-aware browser extension that lets you chat with any OpenAI-compatible LLM
 - `src/shared.js`: Shared storage, i18n, and helper utilities.
 - `src/locales/*`: Locale strings and default prompts.
 
-For detailed side panel architecture and extension points, see [docs/SIDEPANEL_ARCHITECTURE.md](docs/SIDEPANEL_ARCHITECTURE.md).
+For detailed side panel architecture and extension points, see [docs/SIDEPANEL_ARCHITECTURE.md](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/SIDEPANEL_ARCHITECTURE.md).
 
 ## Installation (Developer Mode)
 
@@ -85,7 +85,10 @@ For detailed side panel architecture and extension points, see [docs/SIDEPANEL_A
 - Cached `pageSummary` is kept when clearing current-page chat history.
 - Cached `pageSummary` is removed when the tab is closed (tab session cleanup).
 - The extension uses `activeTab` + user-triggered actions to reduce broad host access.
+- The `tabs` permission is used for per-tab side panel/session synchronization. Chrome may display this as "Read your browsing history."
 - Page-summary extraction automatically skips challenge/captcha-like pages to avoid unnecessary risk.
+- This extension does not upload data to any project-operated cloud/backend and does not proactively collect personal data.
+- Except when you explicitly send a question, only the text you choose to send is forwarded to your own configured LLM API provider.
 
 ## Legal & Compliance Notice
 

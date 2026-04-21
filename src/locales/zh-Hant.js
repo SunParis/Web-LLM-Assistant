@@ -42,7 +42,7 @@ export default {
     enablePageSummaryHelp: "預設為關閉。啟用後，提問前會先嘗試生成當前頁面摘要。",
     legalConsentLabel: "我已了解並同意資料/合規聲明",
     legalConsentHelp:
-      "使用前請確認你有權處理並將網頁內容送至你設定的 API 服務商。",
+      "使用前請確認你有權處理並將網頁內容送至你設定的 API 服務商。本擴充功能不會把資料上傳到專案方自建雲端/後端，也不會主動蒐集個人資料。除非你明確送出提問，否則不會對外傳送內容；送出時也僅會傳送你主動詢問的文字到你設定的 API 服務商。",
     legalConsentRequired: "請先勾選同意合規聲明，再儲存設定。",
     sensitiveReminderLabel: "送出前提醒可能含隱私/機密內容",
     sensitiveReminderHelp:

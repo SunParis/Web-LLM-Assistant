@@ -40,7 +40,7 @@
 - UI 表示は `src/sidepanel_ui.js`、イベント拡張ポイントは `src/sidepanel_events.js`、API 通信は `src/sidepanel_api.js` に分離されています。
 - テキスト処理は `src/sidepanel_text.js`、アイコン定義は `src/sidepanel_icons.js` に分離されています。
 
-詳細は [SIDEPANEL_ARCHITECTURE.md](SIDEPANEL_ARCHITECTURE.md) を参照してください。
+詳細は [SIDEPANEL_ARCHITECTURE.md](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/SIDEPANEL_ARCHITECTURE.md) を参照してください。
 
 ## インストール（開発者モード）
 
@@ -73,6 +73,9 @@
 
 - `pageSummary` は「このページの履歴をクリア」では削除されません。
 - `pageSummary` はタブを閉じた時に削除されます。
+- `tabs` 権限はタブ単位のサイドパネル/セッション同期のために使用しています。Chrome では「閲覧履歴の読み取り」と表示される場合があります。
+- 本拡張機能は、プロジェクト運営側のクラウド/バックエンドへデータをアップロードせず、個人情報を能動的に収集しません。
+- ユーザーが明示的に質問を送信した場合に限り、送信対象として選んだテキストだけが、ユーザー自身の設定した LLM API プロバイダーへ送られます。
 
 ## 法務・コンプライアンスに関する注意
 

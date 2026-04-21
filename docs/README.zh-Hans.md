@@ -40,7 +40,7 @@
 - UI 渲染拆分到 `src/sidepanel_ui.js`，事件扩展点拆分到 `src/sidepanel_events.js`，API 通讯拆分到 `src/sidepanel_api.js`。
 - 文本处理工具拆分到 `src/sidepanel_text.js`，图标常量拆分到 `src/sidepanel_icons.js`。
 
-详细说明请参阅 [SIDEPANEL_ARCHITECTURE.md](SIDEPANEL_ARCHITECTURE.md)。
+详细说明请参阅 [SIDEPANEL_ARCHITECTURE.md](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/SIDEPANEL_ARCHITECTURE.md)。
 
 ## 安装（开发者模式）
 
@@ -73,6 +73,9 @@
 
 - `pageSummary` 不会因为“清除当前页面聊天记录”被删除。
 - `pageSummary` 仅在关闭该标签页时删除。
+- `tabs` 权限用于标签页级别的侧边栏/会话同步；Chrome 可能会显示为“读取你的浏览记录”。
+- 本扩展不会把数据上传到项目方自建云端/后端，也不会主动收集个人资料。
+- 除了你明确发送提问的情况外，不会把你的内容发送到外部服务；发送时也仅会把你主动询问的文字发到你自行配置的 LLM API 服务商。
 
 ## 法律与合规声明
 

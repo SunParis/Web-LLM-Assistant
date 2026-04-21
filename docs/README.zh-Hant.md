@@ -40,7 +40,7 @@
 - UI 呈現拆分到 `src/sidepanel_ui.js`，事件擴充點拆分到 `src/sidepanel_events.js`，API 通訊拆分到 `src/sidepanel_api.js`。
 - 文字處理工具拆分到 `src/sidepanel_text.js`，圖示常數拆分到 `src/sidepanel_icons.js`。
 
-詳細請參考 [SIDEPANEL_ARCHITECTURE.md](SIDEPANEL_ARCHITECTURE.md)。
+詳細請參考 [SIDEPANEL_ARCHITECTURE.md](https://github.com/SunParis/Web-LLM-Assistant/blob/main/docs/SIDEPANEL_ARCHITECTURE.md)。
 
 ## 安裝（開發者模式）
 
@@ -73,6 +73,9 @@
 
 - `pageSummary` 不會因「清除此頁歷史」被刪除。
 - `pageSummary` 會在關閉該分頁時刪除。
+- `tabs` 權限用於分頁層級的側邊欄/會話同步；Chrome 可能會顯示為「讀取你的瀏覽記錄」。
+- 本擴充功能不會把資料上傳到專案方自建雲端/後端，也不會主動蒐集個人資料。
+- 除了你明確送出提問的情況外，不會把你的內容送到外部服務；送出時也僅會傳送你主動詢問的文字到你自行設定的 LLM API 服務商。
 
 ## 法律與合規聲明
 
