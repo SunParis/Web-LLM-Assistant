@@ -34,6 +34,14 @@
   - 繁體中文 (`zh-Hant`)
   - 简体中文 (`zh-Hans`)
 
+## アーキテクチャ
+
+- `src/sidepanel.js` はサイドパネル全体のオーケストレーション（状態遷移・Chrome API 連携）を担当します。
+- UI 表示は `src/sidepanel_ui.js`、イベント拡張ポイントは `src/sidepanel_events.js`、API 通信は `src/sidepanel_api.js` に分離されています。
+- テキスト処理は `src/sidepanel_text.js`、アイコン定義は `src/sidepanel_icons.js` に分離されています。
+
+詳細は [SIDEPANEL_ARCHITECTURE.md](SIDEPANEL_ARCHITECTURE.md) を参照してください。
+
 ## インストール（開発者モード）
 
 1. Chrome/Edge の拡張機能ページを開く。

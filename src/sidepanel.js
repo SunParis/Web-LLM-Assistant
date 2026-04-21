@@ -5,8 +5,37 @@ import {
   getSession,
   getSettings,
   normalizeApiEndpoint,
+  sanitizeModelParams,
   setSession
 } from "./shared.js";
+import {
+  ICON_CANCEL_EDIT,
+  ICON_CLEAR,
+  ICON_COPY,
+  ICON_DELETE,
+  ICON_EDIT,
+  ICON_RESEND,
+  ICON_SEND,
+  ICON_SETTINGS,
+  ICON_STOP
+} from "./sidepanel_icons.js";
+import {
+  SUMMARY_OUTPUT_CHAR_LIMIT,
+  SUMMARY_SOURCE_CHAR_LIMIT,
+  buildFallbackSummary,
+  condensePageText,
+  detectSensitiveData,
+  historyToText,
+  snippetsToText
+} from "./sidepanel_text.js";
+import {
+  buildRawPreview,
+  extractAssistantText,
+  requestChatCompletionsWithFallback,
+  sanitizeErrorDetail
+} from "./sidepanel_api.js";
+import { createEventHub, SIDEPANEL_EVENTS } from "./sidepanel_events.js";
+import { createSidepanelUI } from "./sidepanel_ui.js";
 
 const els = {
   title: document.getElementById("title"),
@@ -21,6 +50,8 @@ const els = {
   sendBtn: document.getElementById("send-btn")
 };
 
+// Per-active-tab runtime state in side panel UI.
+// `session` itself is persisted in chrome.storage.session by page URL hash.
 let currentContext = {
   tabId: null,
   pageUrl: "",
@@ -32,35 +63,64 @@ let currentAbortController = null;
 let currentSummaryAbortController = null;
 let isSummaryInProgress = false;
 let editingContext = null;
-const ICON_SEND =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 20.25V14.5L10.5 12L3 9.5V3.75L21 12L3 20.25Z"/></svg>';
-const ICON_EDIT =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75l11-11.03-3.75-3.75L3 17.25Zm18-11.5a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75L21 5.75Z"/></svg>';
-const ICON_RESEND =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 5V2L7 6l5 4V7c3.31 0 6 2.69 6 6a6 6 0 0 1-10.24 4.24l-1.42 1.42A8 8 0 0 0 20 13c0-4.42-3.58-8-8-8Z"/><path fill="currentColor" d="M6 13a6 6 0 0 1 10.24-4.24l1.42-1.42A8 8 0 0 0 4 13a7.96 7.96 0 0 0 2.34 5.66L7.76 17.24A5.96 5.96 0 0 1 6 13Z"/></svg>';
-const ICON_STOP =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>';
-const ICON_COPY =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 8h11v13H8z"/><path fill="currentColor" d="M5 3h11v3H8v10H5z"/></svg>';
-const ICON_DELETE =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4z"/><path fill="currentColor" d="M6 9h12l-1 12H7z"/></svg>';
-const ICON_SETTINGS =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.51.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/></svg>';
-const ICON_CLEAR =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 7h12v2H6z"/><path fill="currentColor" d="M8 10h8l-1 9H9z"/><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4z"/></svg>';
-const ICON_CANCEL_EDIT =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.3z"/></svg>';
-const SUMMARY_SOURCE_CHAR_LIMIT = 4200;
-const SUMMARY_OUTPUT_CHAR_LIMIT = 520;
+const eventHub = createEventHub();
+const ui = createSidepanelUI({
+  els,
+  icons: {
+    ICON_CANCEL_EDIT,
+    ICON_CLEAR,
+    ICON_COPY,
+    ICON_DELETE,
+    ICON_EDIT,
+    ICON_RESEND,
+    ICON_SEND,
+    ICON_SETTINGS,
+    ICON_STOP
+  },
+  onEditMessage: async (index) => {
+    await editMessageAt(index);
+  },
+  onResendMessage: async (index) => {
+    await resendMessageAt(index);
+  },
+  onCopyMessage: async (text, index) => {
+    await copyToClipboard(text);
+    eventHub.emit(SIDEPANEL_EVENTS.MESSAGE_COPIED, { index });
+  },
+  onDeleteMessage: async (index) => {
+    await deleteMessageAt(index);
+  },
+  onRemoveSnippet: async (index, snippet) => {
+    currentContext.session.snippets.splice(index, 1);
+    await persistSession();
+    renderSnippets();
+    eventHub.emit(SIDEPANEL_EVENTS.SNIPPET_REMOVED, { index, snippet });
+  }
+});
 
-function isPendingMessage(msg) {
-  return msg?.meta === "pending";
+function exposeEventApi() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.WebLLMAssistant = window.WebLLMAssistant || {};
+  window.WebLLMAssistant.sidepanelEvents = {
+    on: eventHub.on,
+    off: eventHub.off,
+    events: SIDEPANEL_EVENTS
+  };
 }
 
+/**
+ * Checks if any generation is currently in progress.
+ * @returns {boolean} True if generating.
+ */
 function isGenerationInProgress() {
   return Boolean(currentAbortController || (isSummaryInProgress && currentSummaryAbortController));
 }
 
+/**
+ * Stops the current generation by aborting the active fetch controller.
+ */
 function stopGeneration() {
   if (isSummaryInProgress && currentSummaryAbortController) {
     currentSummaryAbortController.abort();
@@ -82,33 +142,17 @@ function setPendingAssistantStatus(pendingIndex, text) {
   pendingMsg.content = text || "";
   void persistSession();
   renderMessages();
+  eventHub.emit(SIDEPANEL_EVENTS.SUMMARY_STATE, {
+    phase: "pending_status",
+    text: pendingMsg.content
+  });
 }
 
-function buildFallbackSummary(condensedText, maxChars = SUMMARY_OUTPUT_CHAR_LIMIT) {
-  const sentences = (condensedText || "")
-    .split(/(?<=[.!?。！？])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (!sentences.length) {
-    return "";
-  }
-
-  const lines = [];
-  let total = 0;
-  for (let i = 0; i < sentences.length && lines.length < 5; i += 1) {
-    const sentence = sentences[i].slice(0, 130);
-    const line = `- ${sentence}`;
-    if (total + line.length + 1 > maxChars) {
-      break;
-    }
-    lines.push(line);
-    total += line.length + 1;
-  }
-
-  return lines.join("\n");
-}
-
+/**
+ * Ensures a pending assistant message exists at the specified index or creates one.
+ * @param {number} index - The target index in the messages array.
+ * @returns {Object} The pending assistant message.
+ */
 function ensurePendingAssistantMessage(index) {
   if (index >= 0 && currentContext.session.messages[index]?.meta === "pending") {
     return index;
@@ -166,22 +210,11 @@ function getSummaryFailureReason(err) {
   return msg || currentDict.summaryFailedUnknown || "Unknown reason";
 }
 
-function detectSensitiveData(text) {
-  const value = String(text || "");
-  if (!value.trim()) {
-    return false;
-  }
-
-  const patterns = [
-    /\b\d{13,19}\b/, // possible card-like long numbers
-    /\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/, // possible US SSN-like pattern
-    /\b[A-Z][12]\d{8}\b/i, // possible TW ID pattern
-    /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}\b/, // email
-    /\b(password|passwd|api[_-]?key|secret|token|private key|信用卡|卡號|身份证|身分證|密碼)\b/i
-  ];
-  return patterns.some((p) => p.test(value));
-}
-
+/**
+ * Appends a notice-level message from the assistant to the chat.
+ * @param {string} text - The notice text.
+ * @returns {Promise<void>}
+ */
 async function appendAssistantNotice(text) {
   if (!text) {
     return;
@@ -189,6 +222,9 @@ async function appendAssistantNotice(text) {
   currentContext.session.messages.push({ role: "assistant", content: text });
   await persistSession();
   renderMessages();
+  eventHub.emit(SIDEPANEL_EVENTS.MESSAGE_UPDATED, {
+    reason: "assistant_notice"
+  });
 }
 
 function mapSummaryFailureReason(reasonCode) {
@@ -203,6 +239,11 @@ function mapSummaryFailureReason(reasonCode) {
   return reasonMap[reasonCode] || currentDict.summaryFailedUnknown || "Unknown reason";
 }
 
+/**
+ * Copies the provided text to the system clipboard.
+ * @param {string} text - The text to copy.
+ * @returns {Promise<void>}
+ */
 async function copyToClipboard(text) {
   if (!text) {
     return;
@@ -228,6 +269,7 @@ async function deleteMessageAt(index) {
   });
   await persistSession();
   renderMessages();
+  eventHub.emit(SIDEPANEL_EVENTS.MESSAGE_DELETED, { index });
 }
 
 function getAttachedSnippetsBefore(index) {
@@ -288,55 +330,10 @@ async function removeSummaryStatusAfterUser(userIndex) {
   }
 }
 
-function createIconButton(iconSvg, title, onClick, className = "msg-btn") {
-  const btn = document.createElement("button");
-  btn.className = className;
-  btn.type = "button";
-  btn.title = title;
-  btn.setAttribute("aria-label", title);
-  btn.innerHTML = iconSvg;
-  btn.addEventListener("click", onClick);
-  return btn;
-}
-
-function condensePageText(rawText, maxChars = SUMMARY_SOURCE_CHAR_LIMIT) {
-  const normalized = (rawText || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!normalized) {
-    return "";
-  }
-
-  const sentences = normalized.split(/(?<=[.!?。！？])\s+/).map((s) => s.trim());
-  const selected = [];
-  const seen = new Set();
-  let total = 0;
-
-  for (const sentence of sentences) {
-    if (!sentence || sentence.length < 20) {
-      continue;
-    }
-    const key = sentence.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-
-    const capped = sentence.slice(0, 220);
-    if (total + capped.length + 1 > maxChars) {
-      break;
-    }
-    selected.push(capped);
-    total += capped.length + 1;
-  }
-
-  if (!selected.length) {
-    return normalized.slice(0, maxChars);
-  }
-  return selected.join("\n");
-}
-
+/**
+ * Injects a content script to extract readable text from the current page for summarization.
+ * @returns {Promise<string>} The extracted text.
+ */
 async function extractPageSourceForSummary() {
   if (!currentContext.tabId) {
     return { ok: false, reason: "no_active_tab", title: "", text: "" };
@@ -396,7 +393,15 @@ async function extractPageSourceForSummary() {
   }
 }
 
+/**
+ * Calls the API to generate a summary for the provided page content.
+ * @param {string} pageTitle - The title of the page.
+ * @param {string} condensedText - The condensed page text.
+ * @param {AbortSignal} signal - An abort signal for the request.
+ * @returns {Promise<string>} The generated summary.
+ */
 async function generatePageSummary(pageTitle, condensedText, signal) {
+  // Summary request is intentionally low-temperature to maximize factual density.
   const settings = await getSettings();
   const endpoint = normalizeApiEndpoint(settings.apiUrl);
   if (!endpoint || !settings.apiKey || !settings.model || !condensedText) {
@@ -496,9 +501,7 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
   const {
     historyMessages = [...currentContext.session.messages],
     userIndex = -1,
-    assistantIndex = -1,
-    snippetStartIndex = -1,
-    snippetEndIndex = -1
+    assistantIndex = -1
   } = options;
 
   let pendingIndex = assistantIndex;
@@ -574,6 +577,11 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
   renderMessages();
   renderSnippets();
   setSendButtonMode(true);
+  eventHub.emit(SIDEPANEL_EVENTS.MESSAGE_SENT, {
+    textLength: inputText.length,
+    snippetCount: submittedSnippets.length,
+    isEdit: userIndex >= 0
+  });
 
   const runtimeSettings = await getSettings();
   const isPageSummaryEnabled = Boolean(runtimeSettings.enablePageSummary);
@@ -604,10 +612,9 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
           pendingIndex,
           `${currentDict.summaryFailedPrefix || "Summary failed"}: ${reason}`
         );
-        console.warn(`[summary] skipped/failed ${JSON.stringify({
-          reasonCode: summaryFailureReasonCode,
-          tabId: currentContext.tabId
-        })}`);
+        console.warn(
+          `[summary] skipped/failed: ${summaryFailureReasonCode || "unknown"}`
+        );
       }
     } catch (err) {
       const reason = getSummaryFailureReason(err);
@@ -615,10 +622,9 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
         pendingIndex,
         `${currentDict.summaryFailedPrefix || "Summary failed"}: ${reason}`
       );
-      console.warn(`[summary] exception ${JSON.stringify({
-        error: String(err?.message || err),
-        tabId: currentContext.tabId
-      })}`);
+      console.warn(
+        `[summary] exception: ${sanitizeErrorDetail(String(err?.message || err))}`
+      );
       pageSummary = "";
     } finally {
       isSummaryInProgress = false;
@@ -651,6 +657,7 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
   pendingIndex = ensurePendingAssistantMessage(pendingIndex);
 
   currentAbortController = new AbortController();
+  eventHub.emit(SIDEPANEL_EVENTS.GENERATION_STATE, { state: "started" });
 
   try {
     const answer = await askModel(
@@ -671,6 +678,10 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
     currentContext.session.messages[pendingIndex] = { role: "assistant", content: answer };
     await persistSession();
     renderMessages();
+    eventHub.emit(SIDEPANEL_EVENTS.MESSAGE_UPDATED, {
+      reason: "assistant_answer",
+      length: answer.length
+    });
   } catch (err) {
     const isAbort = err?.name === "AbortError";
     currentContext.session.messages[pendingIndex] = {
@@ -679,10 +690,15 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
     };
     await persistSession();
     renderMessages();
+    eventHub.emit(SIDEPANEL_EVENTS.MESSAGE_UPDATED, {
+      reason: "assistant_error",
+      error: String(err?.message || err || "")
+    });
   } finally {
     currentAbortController = null;
     setSendButtonMode(false);
     clearSummaryStatus();
+    eventHub.emit(SIDEPANEL_EVENTS.GENERATION_STATE, { state: "finished" });
   }
 }
 
@@ -737,21 +753,11 @@ async function editMessageAt(index) {
 }
 
 function setSendButtonMode(isGenerating) {
-  if (isGenerating) {
-    els.sendBtn.dataset.mode = "stop";
-    els.sendBtn.title = currentDict.stop;
-    els.sendBtn.setAttribute("aria-label", currentDict.stop);
-    els.sendBtn.innerHTML = ICON_STOP;
-    return;
-  }
-  els.sendBtn.dataset.mode = "send";
-  els.sendBtn.title = currentDict.send;
-  els.sendBtn.setAttribute("aria-label", currentDict.send);
-  els.sendBtn.innerHTML = ICON_SEND;
+  ui.setSendButtonMode(currentDict, isGenerating);
 }
 
 function setEditingMode(isEditing) {
-  document.body.classList.toggle("editing", isEditing);
+  ui.setEditingMode(isEditing);
 }
 
 async function cancelEditing() {
@@ -764,134 +770,19 @@ async function cancelEditing() {
 }
 
 function renderMessages() {
-  const { messages } = currentContext.session;
-  els.messages.innerHTML = "";
-
-  if (!messages.length) {
-    const div = document.createElement("div");
-    div.className = "empty";
-    div.textContent = currentDict.noMessages;
-    els.messages.appendChild(div);
-    return;
-  }
-
-  for (let i = 0; i < messages.length; i += 1) {
-    const msg = messages[i];
-    if (!msg || typeof msg !== "object") {
-      continue;
-    }
-    const div = document.createElement("div");
-    const isSnippet = msg?.meta === "snippet";
-    const isPending = isPendingMessage(msg);
-    div.className = `msg ${isSnippet ? "snippet" : msg.role === "user" ? "user" : "assistant"}`;
-
-    const content = document.createElement("div");
-    content.className = "msg-content";
-    if (isPending) {
-      content.classList.add("pending");
-      if (msg.content) {
-        const text = document.createElement("span");
-        text.className = "pending-text";
-        text.textContent = msg.content;
-        content.appendChild(text);
-      }
-      const dots = document.createElement("span");
-      dots.className = "pending-dots";
-      dots.innerHTML = "<span></span><span></span><span></span>";
-      content.appendChild(dots);
-    } else {
-      content.textContent = msg.content;
-    }
-    div.appendChild(content);
-
-    if (!isPending && !isSnippet) {
-      const actions = document.createElement("div");
-      actions.className = "msg-actions";
-
-      if (msg.role === "user") {
-        const editBtn = createIconButton(ICON_EDIT, currentDict.edit, async () => {
-          await editMessageAt(i);
-        });
-        const resendBtn = createIconButton(ICON_RESEND, currentDict.resend, async () => {
-          await resendMessageAt(i);
-        });
-        actions.appendChild(editBtn);
-        actions.appendChild(resendBtn);
-      }
-
-      const copyBtn = createIconButton(ICON_COPY, currentDict.copy, async () => {
-        await copyToClipboard(msg.content);
-      });
-
-      const deleteBtn = createIconButton(ICON_DELETE, currentDict.delete, async () => {
-        await deleteMessageAt(i);
-      });
-
-      actions.appendChild(copyBtn);
-      actions.appendChild(deleteBtn);
-      div.appendChild(actions);
-    }
-
-    els.messages.appendChild(div);
-  }
-
-  els.messages.scrollTop = els.messages.scrollHeight;
-  setSendButtonMode(isGenerationInProgress());
+  ui.renderMessages(currentContext.session, currentDict, isGenerationInProgress());
 }
 
 function renderSnippets() {
-  els.snippetList.innerHTML = "";
-  for (let i = 0; i < currentContext.session.snippets.length; i += 1) {
-    const snippet = currentContext.session.snippets[i];
-    const chip = document.createElement("div");
-    chip.className = "snippet-chip";
-
-    const text = document.createElement("span");
-    text.className = "snippet-text";
-    text.title = snippet;
-    text.textContent = snippet;
-
-    const removeBtn = document.createElement("button");
-    removeBtn.className = "snippet-remove";
-    removeBtn.type = "button";
-    removeBtn.textContent = "x";
-    removeBtn.addEventListener("click", async () => {
-      currentContext.session.snippets.splice(i, 1);
-      await persistSession();
-      renderSnippets();
-    });
-
-    chip.appendChild(text);
-    chip.appendChild(removeBtn);
-    els.snippetList.appendChild(chip);
-  }
+  ui.renderSnippets(currentContext.session);
 }
 
 function applyText() {
-  els.title.textContent = currentDict.sidepanelTitle;
-  els.input.placeholder = currentDict.placeholderInput;
-  els.snippetLabel.textContent = currentDict.selectedText;
-  const cancelEditLabel = currentDict.cancelEdit || "Cancel edit";
-  const cancelEditLabelWithShortcut = `${cancelEditLabel} (Esc)`;
-  els.cancelEditBtn.innerHTML = `${ICON_CANCEL_EDIT}`;
-  els.cancelEditBtn.title = cancelEditLabelWithShortcut;
-  els.cancelEditBtn.setAttribute("aria-label", cancelEditLabelWithShortcut);
-  els.clearHistoryBtn.innerHTML = ICON_CLEAR;
-  els.clearHistoryBtn.title = currentDict.clearHistory;
-  els.clearHistoryBtn.setAttribute("aria-label", currentDict.clearHistory);
-  els.settingsLink.innerHTML = ICON_SETTINGS;
-  els.settingsLink.title = currentDict.settings;
-  els.settingsLink.setAttribute("aria-label", currentDict.settings);
-  setSendButtonMode(isGenerationInProgress());
+  ui.applyText(currentDict, isGenerationInProgress());
 }
 
 function applyTheme(mode) {
-  const root = document.documentElement;
-  if (mode === "light" || mode === "dark") {
-    root.setAttribute("data-theme", mode);
-    return;
-  }
-  root.removeAttribute("data-theme");
+  ui.applyTheme(mode);
 }
 
 function toHistoryMessages(messages) {
@@ -901,40 +792,6 @@ function toHistoryMessages(messages) {
     }
     return m.meta !== "pending";
   });
-}
-
-function historyToText(messages) {
-  if (!messages.length) {
-    return "";
-  }
-  return messages
-    .map((m) => {
-      if (m.meta === "snippet") {
-        return `${currentDict.selectedTextHistoryLabel} ${m.content}`;
-      }
-      return `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`;
-    })
-    .join("\n");
-}
-
-function snippetsToText(snippets, maxCharsPerSnippet = Number.MAX_SAFE_INTEGER, maxTotalChars = Number.MAX_SAFE_INTEGER) {
-  if (!snippets.length) {
-    return "";
-  }
-
-  const lines = [];
-  let total = 0;
-  for (let i = 0; i < snippets.length; i += 1) {
-    const raw = snippets[i];
-    const trimmed = raw.slice(0, maxCharsPerSnippet);
-    const line = `[${i + 1}] ${trimmed}`;
-    if (total + line.length > maxTotalChars) {
-      break;
-    }
-    lines.push(line);
-    total += line.length;
-  }
-  return lines.join("\n");
 }
 
 async function persistSession() {
@@ -955,244 +812,31 @@ async function initContext() {
   currentContext.session = await getSession(tab.id, tab.url);
 }
 
-function extractAssistantText(data) {
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content === "string" && content.trim()) {
-    return content;
-  }
-
-  if (Array.isArray(content)) {
-    const textParts = content
-      .map((item) => {
-        if (typeof item === "string") {
-          return item;
-        }
-        if (typeof item?.text === "string") {
-          return item.text;
-        }
-        return "";
-      })
-      .filter(Boolean);
-    if (textParts.length) {
-      return textParts.join("\n");
-    }
-  }
-
-  const alt = data?.output_text;
-  if (typeof alt === "string" && alt.trim()) {
-    return alt;
-  }
-
-  const choiceText = data?.choices?.[0]?.text;
-  if (typeof choiceText === "string" && choiceText.trim()) {
-    return choiceText;
-  }
-
-  const refusal = data?.choices?.[0]?.message?.refusal;
-  if (typeof refusal === "string" && refusal.trim()) {
-    return refusal;
-  }
-
-  const reasoningContent = data?.choices?.[0]?.message?.reasoning_content;
-  if (typeof reasoningContent === "string" && reasoningContent.trim()) {
-    return reasoningContent;
-  }
-
-  const responsesApiOutput = data?.output?.[0]?.content;
-  if (Array.isArray(responsesApiOutput)) {
-    const textParts = responsesApiOutput
-      .map((item) => {
-        if (typeof item?.text === "string") {
-          return item.text;
-        }
-        if (typeof item?.output_text === "string") {
-          return item.output_text;
-        }
-        return "";
-      })
-      .filter(Boolean);
-    if (textParts.length) {
-      return textParts.join("\n");
-    }
-  }
-
-  const geminiLike = data?.candidates?.[0]?.content?.parts;
-  if (Array.isArray(geminiLike)) {
-    const textParts = geminiLike
-      .map((part) => (typeof part?.text === "string" ? part.text : ""))
-      .filter(Boolean);
-    if (textParts.length) {
-      return textParts.join("\n");
-    }
-  }
-
-  return "";
-}
-
-function buildRawPreview(data) {
-  try {
-    return JSON.stringify(data).slice(0, 400);
-  } catch {
-    return "[unserializable response]";
-  }
-}
-
-async function callChatCompletions(endpoint, apiKey, body, signal) {
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(body),
-    signal
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`API ${res.status}: ${errorText}`);
-  }
-
-  return res.json();
-}
-
-function extractStreamDelta(data) {
-  const delta = data?.choices?.[0]?.delta;
-  if (typeof delta?.content === "string") {
-    return delta.content;
-  }
-
-  if (Array.isArray(delta?.content)) {
-    return delta.content
-      .map((item) => {
-        if (typeof item === "string") {
-          return item;
-        }
-        if (typeof item?.text === "string") {
-          return item.text;
-        }
-        return "";
-      })
-      .join("");
-  }
-
-  if (typeof delta?.reasoning_content === "string") {
-    return delta.reasoning_content;
-  }
-
-  const text = data?.choices?.[0]?.text;
-  if (typeof text === "string") {
-    return text;
-  }
-
-  return "";
-}
-
-async function streamChatCompletions(endpoint, apiKey, body, signal, onDelta) {
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({ ...body, stream: true }),
-    signal
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`API ${res.status}: ${errorText}`);
-  }
-
-  const contentType = res.headers.get("content-type") || "";
-  if (!contentType.includes("text/event-stream") || !res.body) {
-    return res.json();
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let streamedText = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
-
-    for (const event of events) {
-      const lines = event
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.startsWith("data:"));
-
-      for (const line of lines) {
-        const dataText = line.slice(5).trim();
-        if (!dataText || dataText === "[DONE]") {
-          continue;
-        }
-
-        let data;
-        try {
-          data = JSON.parse(dataText);
-        } catch {
-          continue;
-        }
-
-        if (data?.error) {
-          const msg = data?.error?.message || JSON.stringify(data.error);
-          throw new Error(`API error payload: ${msg}`);
-        }
-
-        const chunk = extractStreamDelta(data);
-        if (chunk) {
-          streamedText += chunk;
-          onDelta(streamedText);
-        }
-      }
-    }
-  }
-
-  return {
-    choices: [
-      {
-        message: {
-          content: streamedText
-        }
-      }
-    ]
-  };
-}
-
-async function requestChatCompletionsWithFallback(endpoint, apiKey, body, signal, onDelta) {
-  const streamed = await streamChatCompletions(endpoint, apiKey, body, signal, onDelta);
-  const streamedText = extractAssistantText(streamed);
-  if (streamedText) {
-    return streamed;
-  }
-
-  // Some OpenAI-compatible providers accept stream=true but end with an empty payload.
-  return callChatCompletions(endpoint, apiKey, body, signal);
-}
-
+/**
+ * Master function to call the language model API with full context and history.
+ * @param {string} inputText - The user's input question.
+ * @param {Object[]} historyMessages - The selected conversation history.
+ * @param {Object[]} selectedSnippets - The highlighted snippets included.
+ * @param {string} pageSummary - The extracted page summary context, if any.
+ * @param {AbortSignal} signal - The abort signal for cancellation.
+ * @param {Function} onDelta - Callback for streaming text chunks.
+ * @returns {Promise<string>} The full response string.
+ */
 async function askModel(inputText, historyMessages, selectedSnippets, pageSummary, signal, onDelta) {
   const settings = await getSettings();
+  const safeParams = sanitizeModelParams(settings);
   const endpoint = normalizeApiEndpoint(settings.apiUrl);
   if (!endpoint || !settings.apiKey || !settings.model) {
     throw new Error("Missing API settings");
   }
-  const baseMaxTokens = Number(settings.maxTokens) || 1024;
+  const baseMaxTokens = safeParams.maxTokens;
   const historyForPrompt = toHistoryMessages(historyMessages);
   const lang = settings.displayLanguage;
   const promptTemplate = getPromptTemplate(settings, lang);
   const promptText = fillPromptTemplate(
     promptTemplate,
     {
-      history: historyToText(historyForPrompt),
+      history: historyToText(historyForPrompt, currentDict.selectedTextHistoryLabel),
       selected_text: snippetsToText(selectedSnippets),
       page_summary: pageSummary || "",
       user_query: inputText
@@ -1202,8 +846,8 @@ async function askModel(inputText, historyMessages, selectedSnippets, pageSummar
 
   const body = {
     model: settings.model,
-    temperature: Number(settings.temperature),
-    top_p: Number(settings.topP),
+    temperature: safeParams.temperature,
+    top_p: safeParams.topP,
     max_tokens: baseMaxTokens,
     messages: [
       {
@@ -1221,7 +865,7 @@ async function askModel(inputText, historyMessages, selectedSnippets, pageSummar
     onDelta
   );
   if (data?.error) {
-    const msg = data?.error?.message || JSON.stringify(data.error);
+    const msg = sanitizeErrorDetail(data?.error?.message || JSON.stringify(data.error));
     throw new Error(`API error payload: ${msg}`);
   }
 
@@ -1230,6 +874,7 @@ async function askModel(inputText, historyMessages, selectedSnippets, pageSummar
     return text;
   }
 
+  // If provider truncated output, retry once with shorter context and higher cap.
   const finishReason = data?.choices?.[0]?.finish_reason;
   if (finishReason === "length") {
     const conciseHint =
@@ -1241,7 +886,10 @@ async function askModel(inputText, historyMessages, selectedSnippets, pageSummar
     const retryPromptText = fillPromptTemplate(
       promptTemplate,
       {
-        history: historyToText(historyForPrompt.slice(-10)),
+        history: historyToText(
+          historyForPrompt.slice(-10),
+          currentDict.selectedTextHistoryLabel
+        ),
         selected_text: snippetsToText(selectedSnippets, 600, 2400),
         page_summary: pageSummary || "",
         user_query: inputText
@@ -1251,8 +899,8 @@ async function askModel(inputText, historyMessages, selectedSnippets, pageSummar
 
     const retryBody = {
       model: settings.model,
-      temperature: Number(settings.temperature),
-      top_p: Number(settings.topP),
+      temperature: safeParams.temperature,
+      top_p: safeParams.topP,
       max_tokens: Math.max(baseMaxTokens, 2048),
       messages: [
         {
@@ -1270,7 +918,9 @@ async function askModel(inputText, historyMessages, selectedSnippets, pageSummar
       onDelta
     );
     if (retryData?.error) {
-      const msg = retryData?.error?.message || JSON.stringify(retryData.error);
+      const msg = sanitizeErrorDetail(
+        retryData?.error?.message || JSON.stringify(retryData.error)
+      );
       throw new Error(`API error payload: ${msg}`);
     }
     text = extractAssistantText(retryData);
@@ -1287,6 +937,10 @@ async function askModel(inputText, historyMessages, selectedSnippets, pageSummar
   throw new Error(`Model returned empty content. Raw preview: ${preview}`);
 }
 
+/**
+ * Handles the default send action from the UI, pulling text from the input.
+ * @returns {Promise<void>}
+ */
 async function onSend() {
   if (currentAbortController || els.sendBtn.dataset.mode === "stop") {
     stopGeneration();
@@ -1304,6 +958,7 @@ async function onSend() {
       currentDict.consentNotAcceptedMessage ||
         "Please open Settings and accept the compliance notice before sending messages."
     );
+    eventHub.emit(SIDEPANEL_EVENTS.CONSENT_BLOCKED, {});
     return;
   }
 
@@ -1311,13 +966,22 @@ async function onSend() {
   if (runtimeSettings.sensitiveDataReminderEnabled !== false) {
     const sensitiveSource = `${inputText}\n${submittedSnippets.join("\n")}`;
     if (detectSensitiveData(sensitiveSource)) {
+      eventHub.emit(SIDEPANEL_EVENTS.SENSITIVE_WARNING, {
+        state: "detected"
+      });
       const confirmed = window.confirm(
         currentDict.sensitiveReminderConfirm ||
           "Potential sensitive data detected. Continue sending to your configured API provider?"
       );
       if (!confirmed) {
+        eventHub.emit(SIDEPANEL_EVENTS.SENSITIVE_WARNING, {
+          state: "cancelled"
+        });
         return;
       }
+      eventHub.emit(SIDEPANEL_EVENTS.SENSITIVE_WARNING, {
+        state: "confirmed"
+      });
     }
   }
 
@@ -1337,6 +1001,7 @@ async function clearCurrentPageHistory() {
   await persistSession();
   renderMessages();
   renderSnippets();
+  eventHub.emit(SIDEPANEL_EVENTS.HISTORY_CLEARED, {});
 }
 
 chrome.runtime.onMessage.addListener(async (msg) => {
@@ -1349,9 +1014,15 @@ chrome.runtime.onMessage.addListener(async (msg) => {
   currentContext.session = await getSession(currentContext.tabId, currentContext.pageUrl);
   renderMessages();
   renderSnippets();
+  eventHub.emit(SIDEPANEL_EVENTS.CONTEXT_SYNCED, { source: "runtime_message" });
 });
 
+/**
+ * Initializes the sidepanel state, restoring session data and handling configurations.
+ * @returns {Promise<void>}
+ */
 async function bootstrap() {
+  exposeEventApi();
   const settings = await getSettings();
   currentDict = getDict(settings.displayLanguage);
   applyTheme(settings.themeMode || "system");
@@ -1360,6 +1031,7 @@ async function bootstrap() {
   await initContext();
   renderMessages();
   renderSnippets();
+  eventHub.emit(SIDEPANEL_EVENTS.CONTEXT_SYNCED, { source: "bootstrap" });
 
   els.sendBtn.addEventListener("click", onSend);
   els.cancelEditBtn.addEventListener("click", cancelEditing);
@@ -1384,6 +1056,7 @@ async function bootstrap() {
     await initContext();
     renderMessages();
     renderSnippets();
+    eventHub.emit(SIDEPANEL_EVENTS.CONTEXT_SYNCED, { source: "tab_activated" });
   });
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -1394,6 +1067,7 @@ async function bootstrap() {
     currentContext.session = await getSession(currentContext.tabId, currentContext.pageUrl);
     renderMessages();
     renderSnippets();
+    eventHub.emit(SIDEPANEL_EVENTS.CONTEXT_SYNCED, { source: "tab_updated" });
   });
 
   chrome.storage.onChanged.addListener(async (changes, area) => {
@@ -1407,6 +1081,7 @@ async function bootstrap() {
       applyText();
       renderMessages();
       renderSnippets();
+      eventHub.emit(SIDEPANEL_EVENTS.CONTEXT_SYNCED, { source: "settings_changed" });
     }
   });
 }

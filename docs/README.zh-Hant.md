@@ -34,6 +34,14 @@
   - 繁體中文 (`zh-Hant`)
   - 简体中文 (`zh-Hans`)
 
+## 架構
+
+- `src/sidepanel.js` 主要負責側邊欄流程編排（狀態流轉、Chrome API 整合）。
+- UI 呈現拆分到 `src/sidepanel_ui.js`，事件擴充點拆分到 `src/sidepanel_events.js`，API 通訊拆分到 `src/sidepanel_api.js`。
+- 文字處理工具拆分到 `src/sidepanel_text.js`，圖示常數拆分到 `src/sidepanel_icons.js`。
+
+詳細請參考 [SIDEPANEL_ARCHITECTURE.md](SIDEPANEL_ARCHITECTURE.md)。
+
 ## 安裝（開發者模式）
 
 1. 開啟 Chrome/Edge 的擴充功能頁面。

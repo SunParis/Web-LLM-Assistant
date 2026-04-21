@@ -4,6 +4,7 @@ import {
   getDict,
   getSettings,
   normalizeApiEndpoint,
+  sanitizeModelParams,
   setApiKey,
   SUPPORTED_LANGUAGES
 } from "./shared.js";
@@ -49,7 +50,12 @@ const els = {
 let currentDict = getDict(DEFAULT_SETTINGS.displayLanguage);
 let promptByLanguageCache = { ...DEFAULT_SETTINGS.promptByLanguage };
 let activeLanguage = DEFAULT_SETTINGS.displayLanguage;
+const STATUS_DETAIL_LIMIT = 280;
 
+/**
+ * Applies the selected theme mode ('light', 'dark', or 'system') to the document root.
+ * @param {string} mode - The theme mode to apply.
+ */
 function applyTheme(mode) {
   const root = document.documentElement;
   if (mode === "light" || mode === "dark") {
@@ -59,22 +65,40 @@ function applyTheme(mode) {
   root.removeAttribute("data-theme");
 }
 
+/**
+ * Normalizes prompt text by trimming whitespace.
+ * @param {string} text - The input text.
+ * @returns {string} The normalized text.
+ */
 function normalizePromptText(text) {
   return (text || "").trim();
 }
 
+/**
+ * Checks if the provided prompt text differs from the default prompt for the given language.
+ * @param {string} text - The current prompt text.
+ * @param {string} lang - The language code.
+ * @returns {boolean} True if the prompt is customized.
+ */
 function isCustomPrompt(text, lang) {
   const current = normalizePromptText(text);
   const def = normalizePromptText(DEFAULT_SETTINGS.promptByLanguage[lang] || "");
   return current !== "" && current !== def;
 }
 
+/**
+ * Applies the given custom prompt text to all supported languages in the cache.
+ * @param {string} promptText - The custom prompt to apply globally.
+ */
 function applyPromptToAllLanguages(promptText) {
   for (const lang of SUPPORTED_LANGUAGES) {
     promptByLanguageCache[lang] = promptText;
   }
 }
 
+/**
+ * Updates the text content of UI elements based on the current localized dictionary.
+ */
 function applyText() {
   els.title.textContent = currentDict.settingsTitle;
   els.labelLanguage.textContent = currentDict.displayLanguage;
@@ -102,11 +126,42 @@ function applyText() {
   els.testBtn.textContent = currentDict.testApi;
 }
 
+/**
+ * Sets the text and color of the status indicator.
+ * @param {string} text - The status message to display.
+ * @param {boolean} ok - True for success (green), false for error (red). Defaults to true.
+ */
 function setStatus(text, ok = true) {
   els.status.textContent = text;
   els.status.style.color = ok ? "#166534" : "#b91c1c";
 }
 
+/**
+ * Sanitizes and truncates a status detail string to prevent UI overflow.
+ * @param {string|Error} detail - The raw detail string or error.
+ * @returns {string} The sanitized text.
+ */
+function sanitizeStatusDetail(detail) {
+  return String(detail || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, STATUS_DETAIL_LIMIT);
+}
+
+/**
+ * Validates if the minimal set of settings (URL, Key, Model) is present to test connection.
+ * @param {Object} settings - The settings object to validate.
+ * @returns {boolean} True if ready.
+ */
+function isSettingsReadyForRequest(settings) {
+  const endpoint = normalizeApiEndpoint(settings.apiUrl);
+  return Boolean(endpoint && settings.apiKey && settings.model);
+}
+
+/**
+ * Loads settings from storage and updates the UI elements with current values.
+ * @returns {Promise<void>}
+ */
 async function loadValues() {
   const settings = await getSettings();
   if (!settings.promptByLanguage || typeof settings.promptByLanguage !== "object") {
@@ -138,28 +193,42 @@ async function loadValues() {
   els.sensitiveReminder.checked = settings.sensitiveDataReminderEnabled !== false;
 }
 
+/**
+ * Collects current input values from the options UI and sanitizes them.
+ * @returns {Object} The collected and sanitized settings.
+ */
 function collectValues() {
+  // Persist prompt immediately for the currently visible language tab.
   promptByLanguageCache[activeLanguage] = els.prompt.value;
   if (isCustomPrompt(els.prompt.value, activeLanguage)) {
     applyPromptToAllLanguages(els.prompt.value);
   }
-  return {
+  const raw = {
     displayLanguage: els.language.value,
     themeMode: els.themeMode.value,
     apiUrl: els.apiUrl.value.trim(),
     apiKey: els.apiKey.value.trim(),
     model: els.model.value.trim(),
     promptByLanguage: promptByLanguageCache,
-    temperature: Number(els.temperature.value),
-    topP: Number(els.topP.value),
-    maxTokens: Number(els.maxTokens.value),
+    temperature: els.temperature.value,
+    topP: els.topP.value,
+    maxTokens: els.maxTokens.value,
     enableSidePanelShortcut: Boolean(els.enableSidePanelShortcut.checked),
     enablePageSummary: Boolean(els.enablePageSummary.checked),
     legalConsentAccepted: Boolean(els.legalConsent.checked),
     sensitiveDataReminderEnabled: Boolean(els.sensitiveReminder.checked)
   };
+
+  return {
+    ...raw,
+    ...sanitizeModelParams(raw)
+  };
 }
 
+/**
+ * Saves the currently collected settings to local storage, handles API key encryption, and updates UI.
+ * @returns {Promise<void>}
+ */
 async function saveSettings() {
   const settings = collectValues();
   if (!settings.legalConsentAccepted) {
@@ -167,6 +236,8 @@ async function saveSettings() {
     return;
   }
   const { apiKey, ...nonSecretSettings } = settings;
+  // Secret and non-secret settings are persisted separately to keep key handling
+  // centralized in shared.js encryption helpers.
   await chrome.storage.local.set(nonSecretSettings);
   await setApiKey(apiKey);
   currentDict = getDict(settings.displayLanguage);
@@ -175,10 +246,15 @@ async function saveSettings() {
   setStatus(currentDict.saved, true);
 }
 
+/**
+ * Tests the API connection using the provided configuration payload.
+ * It sets the status to indicate success or the specific network error.
+ * @returns {Promise<void>}
+ */
 async function testConnection() {
   const settings = collectValues();
   const endpoint = normalizeApiEndpoint(settings.apiUrl);
-  if (!endpoint || !settings.apiKey || !settings.model) {
+  if (!isSettingsReadyForRequest(settings)) {
     setStatus(`${currentDict.testFail}: missing API URL/key/model`, false);
     return;
   }
@@ -195,21 +271,21 @@ async function testConnection() {
       },
       body: JSON.stringify({
         model: settings.model,
-        temperature: Number.isFinite(settings.temperature) ? settings.temperature : 0.7,
+        temperature: settings.temperature,
         messages: [{ role: "user", content: "Reply with: OK" }],
         max_tokens: 20
       })
     });
 
     if (!res.ok) {
-      const txt = await res.text();
+      const txt = sanitizeStatusDetail(await res.text());
       setStatus(`${currentDict.testFail}: ${res.status} ${txt}`, false);
       return;
     }
 
     setStatus(currentDict.testOk, true);
   } catch (err) {
-    setStatus(`${currentDict.testFail}: ${err.message}`, false);
+    setStatus(`${currentDict.testFail}: ${sanitizeStatusDetail(err?.message)}`, false);
   } finally {
     els.testBtn.disabled = false;
   }

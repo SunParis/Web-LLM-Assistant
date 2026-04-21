@@ -38,10 +38,18 @@ A page-aware browser extension that lets you chat with any OpenAI-compatible LLM
 
 - `src/manifest.json`: Extension manifest (MV3).
 - `src/background.js`: Context menu and side panel opening logic.
-- `src/sidepanel.html|css|js`: Main chat UI.
+- `src/sidepanel.html|css`: Side panel UI shell and styles.
+- `src/sidepanel.js`: Side panel orchestration (state flow, Chrome API integration).
+- `src/sidepanel_ui.js`: Message/snippet rendering and UI text/theme application.
+- `src/sidepanel_events.js`: Side panel event hub and extension points.
+- `src/sidepanel_api.js`: Model API requests, SSE parsing, and fallback logic.
+- `src/sidepanel_text.js`: Text processing helpers (summary/sensitive-data/text formatting).
+- `src/sidepanel_icons.js`: Side panel icon constants.
 - `src/options.html|css|js`: Settings page.
 - `src/shared.js`: Shared storage, i18n, and helper utilities.
 - `src/locales/*`: Locale strings and default prompts.
+
+For detailed side panel architecture and extension points, see [SIDEPANEL_ARCHITECTURE.md](SIDEPANEL_ARCHITECTURE.md).
 
 ## Installation (Developer Mode)
 

@@ -14,6 +14,10 @@ let hasActionClickFallbackListener = false;
 let enabledTabsLoaded = false;
 let enabledTabs = new Set();
 
+/**
+ * Hardens storage access to 'TRUSTED_CONTEXTS' for both local and session storage.
+ * @returns {Promise<void>}
+ */
 async function hardenStorageAccess() {
   try {
     if (chrome.storage?.local?.setAccessLevel) {
@@ -31,6 +35,11 @@ async function hardenStorageAccess() {
   }
 }
 
+/**
+ * Extracts the tab ID from a legacy storage session key format.
+ * @param {string} key - The legacy session key.
+ * @returns {number|null} The extracted tab ID, or null if invalid.
+ */
 function extractTabIdFromLegacyPageKey(key) {
   if (typeof key !== "string") {
     return null;
@@ -43,13 +52,25 @@ function extractTabIdFromLegacyPageKey(key) {
   return Number.isInteger(id) ? id : null;
 }
 
+/**
+ * Persists the current 'enabledTabs' set into session storage.
+ * @returns {Promise<void>}
+ */
 async function persistEnabledTabs() {
   await chrome.storage.session.set({
     [SIDE_PANEL_ENABLED_TABS_KEY]: [...enabledTabs]
   });
 }
 
+/**
+ * Loads enabled tabs from storage, migrating legacy formats, and avoiding dual-writes.
+ * @returns {Promise<void>}
+ */
 async function loadEnabledTabs() {
+  // One-time migration + load:
+  // - keep current `sidepanel:enabled-tabs`
+  // - import legacy page-key formats
+  // - remove legacy keys to avoid dual-write drift
   if (enabledTabsLoaded) {
     return;
   }
@@ -92,6 +113,11 @@ async function loadEnabledTabs() {
   enabledTabsLoaded = true;
 }
 
+/**
+ * Marks a tab as enabled in the 'enabledTabs' set and persists it.
+ * @param {number} tabId - The ID of the tab to enable.
+ * @returns {Promise<void>}
+ */
 async function markTabEnabled(tabId) {
   if (!Number.isInteger(tabId)) {
     return;
@@ -104,6 +130,11 @@ async function markTabEnabled(tabId) {
   await persistEnabledTabs();
 }
 
+/**
+ * Removes a tab from the 'enabledTabs' set and persists the changes.
+ * @param {number} tabId - The ID of the tab to disable.
+ * @returns {Promise<void>}
+ */
 async function unmarkTabEnabled(tabId) {
   if (!Number.isInteger(tabId)) {
     return;
@@ -115,6 +146,12 @@ async function unmarkTabEnabled(tabId) {
   await persistEnabledTabs();
 }
 
+/**
+ * Dynamically enables or disables the Chrome side panel for a target tab.
+ * @param {number} tabId - The target tab ID.
+ * @param {boolean} enabled - Whether to enable the side panel.
+ * @returns {Promise<void>}
+ */
 async function setSidePanelEnabledForTab(tabId, enabled) {
   if (!tabId || !chrome.sidePanel?.setOptions) {
     return;
@@ -126,6 +163,11 @@ async function setSidePanelEnabledForTab(tabId, enabled) {
   });
 }
 
+/**
+ * Synchronizes the side panel active state for a specific tab according to 'enabledTabs'.
+ * @param {number} tabId - The tab ID to sync.
+ * @returns {Promise<void>}
+ */
 async function syncSidePanelEnabledStateForTab(tabId) {
   if (!tabId || !chrome.sidePanel?.setOptions) {
     return;
@@ -135,6 +177,10 @@ async function syncSidePanelEnabledStateForTab(tabId) {
   await setSidePanelEnabledForTab(tabId, enabled);
 }
 
+/**
+ * Cleans up dead tabs and synchronizes side panel states across all lived tabs.
+ * @returns {Promise<void>}
+ */
 async function syncAllTabsSidePanelEnabledState() {
   if (!chrome.sidePanel?.setOptions) {
     return;
@@ -145,6 +191,7 @@ async function syncAllTabsSidePanelEnabledState() {
     tabs.map((tab) => tab.id).filter((tabId) => Number.isInteger(tabId))
   );
 
+  // Garbage-collect dead tab IDs from previous browser session.
   let changed = false;
   for (const tabId of [...enabledTabs]) {
     if (!aliveTabIds.has(tabId)) {
@@ -164,6 +211,10 @@ async function syncAllTabsSidePanelEnabledState() {
   );
 }
 
+/**
+ * Disables the global side panel to force per-tab enablement.
+ * @returns {Promise<void>}
+ */
 async function enforceGlobalSidePanelDefaultDisabled() {
   if (!chrome.sidePanel?.setOptions) {
     return;
@@ -174,6 +225,11 @@ async function enforceGlobalSidePanelDefaultDisabled() {
   });
 }
 
+/**
+ * Checks if an error relates to a user gesture restriction.
+ * @param {Error|string} err - The captured error.
+ * @returns {boolean} True if the error is a user gesture restriction.
+ */
 function isUserGestureRestrictionError(err) {
   const message = String(err?.message || err || "").toLowerCase();
   return (
@@ -182,6 +238,12 @@ function isUserGestureRestrictionError(err) {
   );
 }
 
+/**
+ * Attempts to safely open the side panel, managing user gesture restrictions.
+ * @param {number} tabId - The target tab ID.
+ * @param {string} source - The trigger context (e.g., 'action_click', 'context_menu').
+ * @returns {Promise<boolean>} True if it opened successfully, otherwise false.
+ */
 async function openSidePanelSafely(tabId, source) {
   try {
     // Fire-and-open first to keep user-gesture context for sidePanel.open().
@@ -203,6 +265,11 @@ async function openSidePanelSafely(tabId, source) {
   }
 }
 
+/**
+ * Wraps chrome context menu removal in a Promise to safely bypass duplicate errors.
+ * @param {string} menuId - The ID of the context menu to remove.
+ * @returns {Promise<void>}
+ */
 function removeContextMenu(menuId) {
   return new Promise((resolve) => {
     chrome.contextMenus.remove(menuId, () => {
@@ -213,6 +280,11 @@ function removeContextMenu(menuId) {
   });
 }
 
+/**
+ * Wraps chrome context menu creation in a Promise.
+ * @param {string} title - The title of the context menu.
+ * @returns {Promise<void>}
+ */
 function createContextMenu(title) {
   return new Promise((resolve, reject) => {
     chrome.contextMenus.create(
@@ -237,6 +309,10 @@ function createContextMenu(title) {
   });
 }
 
+/**
+ * Recreates the context menu with the correct language translation.
+ * @returns {Promise<void>}
+ */
 async function ensureContextMenu() {
   const { displayLanguage } = await getSettings();
   const dict = getDict(displayLanguage);
@@ -244,6 +320,10 @@ async function ensureContextMenu() {
   await createContextMenu(dict.askAiMenu);
 }
 
+/**
+ * Configures the fallback extension action behavior (toolbar icon click).
+ * @returns {Promise<void>}
+ */
 async function setupActionOpenSidePanel() {
   await enforceGlobalSidePanelDefaultDisabled();
 
@@ -260,6 +340,7 @@ async function setupActionOpenSidePanel() {
   }
 
   if (!hasActionClickFallbackListener) {
+    // Keep a single fallback listener across runtime setting toggles.
     chrome.action.onClicked.addListener(async (tab) => {
       try {
         if (!tab?.id) {
