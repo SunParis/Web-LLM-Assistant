@@ -230,6 +230,8 @@ async function appendAssistantNotice(text) {
 function mapSummaryFailureReason(reasonCode) {
   const reasonMap = {
     no_active_tab: "No active tab",
+    unsupported_page_type: "Unsupported page type",
+    security_challenge_page: "Security challenge / bot-check page",
     page_extract_failed: "Failed to extract page text",
     empty_page_content: "Page text is empty",
     missing_api_settings: "Missing API URL / key / model",
@@ -237,6 +239,31 @@ function mapSummaryFailureReason(reasonCode) {
     heuristic_fallback: "Used local fallback summary"
   };
   return reasonMap[reasonCode] || currentDict.summaryFailedUnknown || "Unknown reason";
+}
+
+function isSupportedPageUrl(rawUrl) {
+  const url = String(rawUrl || "").trim().toLowerCase();
+  return (
+    url.startsWith("http://") ||
+    url.startsWith("https://")
+  );
+}
+
+function mayBeSecurityChallengePage(url, title) {
+  const value = `${String(url || "")} ${String(title || "")}`.toLowerCase();
+  const flags = [
+    "captcha",
+    "recaptcha",
+    "hcaptcha",
+    "cf-challenge",
+    "challenge-platform",
+    "cloudflare",
+    "verify you are human",
+    "are you human",
+    "robot check",
+    "bot check"
+  ];
+  return flags.some((keyword) => value.includes(keyword));
 }
 
 /**
@@ -337,6 +364,18 @@ async function removeSummaryStatusAfterUser(userIndex) {
 async function extractPageSourceForSummary() {
   if (!currentContext.tabId) {
     return { ok: false, reason: "no_active_tab", title: "", text: "" };
+  }
+  if (!isSupportedPageUrl(currentContext.pageUrl)) {
+    return { ok: false, reason: "unsupported_page_type", title: "", text: "" };
+  }
+
+  try {
+    const tab = await chrome.tabs.get(currentContext.tabId);
+    if (mayBeSecurityChallengePage(tab?.url || currentContext.pageUrl, tab?.title || "")) {
+      return { ok: false, reason: "security_challenge_page", title: "", text: "" };
+    }
+  } catch {
+    // Ignore tab metadata lookup failure and proceed to best-effort extract.
   }
 
   try {

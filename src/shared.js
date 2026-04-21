@@ -229,6 +229,10 @@ export async function getSettings() {
     ...DEFAULT_SETTINGS,
     ...publicData,
     promptByLanguage,
+    enableSidePanelShortcut: publicData.enableSidePanelShortcut === true,
+    enablePageSummary: publicData.enablePageSummary === true,
+    legalConsentAccepted: publicData.legalConsentAccepted === true,
+    sensitiveDataReminderEnabled: publicData.sensitiveDataReminderEnabled !== false,
     apiKey
   };
 }

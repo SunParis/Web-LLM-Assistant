@@ -21,7 +21,7 @@ A page-aware browser extension that lets you chat with any OpenAI-compatible LLM
 - Add selected webpage text as context via right-click menu.
 - Edit, resend, copy, and delete chat messages.
 - Stop generation while streaming.
-- Automatic per-page summary generation before answering (with fallback if summary fails).
+- Optional per-page summary generation before answering (disabled by default; with fallback if enabled and summary fails).
 - Summary status hints in assistant messages ("trying", "success", "failed").
 - Two-step assistant output: summary status line, then final answer line.
 - Resend/edit removes temporary summary-status lines while keeping cached summary.
@@ -84,7 +84,8 @@ For detailed side panel architecture and extension points, see [SIDEPANEL_ARCHIT
 - This project uses `chrome.storage.local` for settings and `chrome.storage.session` for per-page chat sessions.
 - Cached `pageSummary` is kept when clearing current-page chat history.
 - Cached `pageSummary` is removed when the tab is closed (tab session cleanup).
-- Host permissions are currently set to `<all_urls>` for broad webpage support.
+- The extension uses `activeTab` + user-triggered actions to reduce broad host access.
+- Page-summary extraction automatically skips challenge/captcha-like pages to avoid unnecessary risk.
 
 ## Legal & Compliance Notice
 

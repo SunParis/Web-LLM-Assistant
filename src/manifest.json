@@ -1,10 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Web LLM Assistant",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A page-aware LLM assistant with side panel chat and selected-text context.",
-  "permissions": ["storage", "contextMenus", "tabs", "sidePanel", "scripting"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "tabs",
+    "sidePanel",
+    "scripting",
+    "activeTab"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

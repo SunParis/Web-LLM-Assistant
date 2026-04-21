@@ -14,6 +14,13 @@ let hasActionClickFallbackListener = false;
 let enabledTabsLoaded = false;
 let enabledTabs = new Set();
 
+async function ensureSummaryExtractionDefaultOff() {
+  const data = await chrome.storage.local.get("enablePageSummary");
+  if (typeof data.enablePageSummary !== "boolean") {
+    await chrome.storage.local.set({ enablePageSummary: false });
+  }
+}
+
 /**
  * Hardens storage access to 'TRUSTED_CONTEXTS' for both local and session storage.
  * @returns {Promise<void>}
@@ -367,6 +374,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     }
   };
   await chrome.storage.local.set(merged);
+  await ensureSummaryExtractionDefaultOff();
   await getSettings();
   await setupActionOpenSidePanel();
   await ensureContextMenu();
@@ -375,6 +383,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.runtime.onStartup.addListener(async () => {
   await hardenStorageAccess();
+  await ensureSummaryExtractionDefaultOff();
   await getSettings();
   await setupActionOpenSidePanel();
   await ensureContextMenu();
