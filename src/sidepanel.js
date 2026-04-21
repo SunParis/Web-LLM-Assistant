@@ -57,6 +57,10 @@ function isPendingMessage(msg) {
   return msg?.meta === "pending";
 }
 
+function isGenerationInProgress() {
+  return Boolean(currentAbortController || (isSummaryInProgress && currentSummaryAbortController));
+}
+
 function stopGeneration() {
   if (isSummaryInProgress && currentSummaryAbortController) {
     currentSummaryAbortController.abort();
@@ -76,6 +80,7 @@ function setPendingAssistantStatus(pendingIndex, text) {
     return;
   }
   pendingMsg.content = text || "";
+  void persistSession();
   renderMessages();
 }
 
@@ -391,7 +396,7 @@ async function extractPageSourceForSummary() {
   }
 }
 
-async function generatePageSummary(pageTitle, pageUrl, condensedText, signal) {
+async function generatePageSummary(pageTitle, condensedText, signal) {
   const settings = await getSettings();
   const endpoint = normalizeApiEndpoint(settings.apiUrl);
   if (!endpoint || !settings.apiKey || !settings.model || !condensedText) {
@@ -424,7 +429,6 @@ async function generatePageSummary(pageTitle, pageUrl, condensedText, signal) {
           "- Total output under 520 characters if possible.",
           "",
           `Page title: ${pageTitle || "(none)"}`,
-          `Page URL: ${pageUrl || "(none)"}`,
           "",
           "Page text:",
           condensedText
@@ -473,7 +477,6 @@ async function ensurePageSummary(signal) {
 
   const summaryResult = await generatePageSummary(
     source.title || "",
-    currentContext.pageUrl || "",
     condensed,
     signal
   );
@@ -603,8 +606,7 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
         );
         console.warn(`[summary] skipped/failed ${JSON.stringify({
           reasonCode: summaryFailureReasonCode,
-          tabId: currentContext.tabId,
-          pageUrl: currentContext.pageUrl
+          tabId: currentContext.tabId
         })}`);
       }
     } catch (err) {
@@ -615,8 +617,7 @@ async function submitMessageWithContext(inputText, submittedSnippets, options = 
       );
       console.warn(`[summary] exception ${JSON.stringify({
         error: String(err?.message || err),
-        tabId: currentContext.tabId,
-        pageUrl: currentContext.pageUrl
+        tabId: currentContext.tabId
       })}`);
       pageSummary = "";
     } finally {
@@ -835,6 +836,7 @@ function renderMessages() {
   }
 
   els.messages.scrollTop = els.messages.scrollHeight;
+  setSendButtonMode(isGenerationInProgress());
 }
 
 function renderSnippets() {
@@ -880,7 +882,7 @@ function applyText() {
   els.settingsLink.innerHTML = ICON_SETTINGS;
   els.settingsLink.title = currentDict.settings;
   els.settingsLink.setAttribute("aria-label", currentDict.settings);
-  setSendButtonMode(Boolean(currentAbortController));
+  setSendButtonMode(isGenerationInProgress());
 }
 
 function applyTheme(mode) {
@@ -1341,7 +1343,7 @@ chrome.runtime.onMessage.addListener(async (msg) => {
   if (msg?.type !== "SNIPPET_APPENDED") {
     return;
   }
-  if (msg.tabId !== currentContext.tabId || msg.pageUrl !== currentContext.pageUrl) {
+  if (msg.tabId !== currentContext.tabId) {
     return;
   }
   currentContext.session = await getSession(currentContext.tabId, currentContext.pageUrl);

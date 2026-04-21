@@ -11,6 +11,12 @@ A page-aware browser extension that lets you chat with any OpenAI-compatible LLM
 
 ## Features
 
+- **Security & Privacy Enhancements**:
+  - API keys are securely encrypted locally using the Web Crypto API (`AES-GCM`).
+  - Side panel states are isolated and managed per-tab to prevent context leaks.
+  - Page URLs are hashed (`SHA-256`) for session keys and excluded from AI prompts to protect browsing history.
+  - Storage access levels are strictly enforced (`TRUSTED_CONTEXTS`).
+
 - Side panel chat interface for each tab/page session.
 - Add selected webpage text as context via right-click menu.
 - Edit, resend, copy, and delete chat messages.
@@ -89,9 +95,11 @@ You can display a short notice in your options page or store listing:
 ## Data Retention Strategy
 
 - `chrome.storage.local`:
-   - Stores settings only (API endpoint, model, language, consent flag, reminder toggles, prompt settings).
+   - Stores settings (API endpoint, model, language, consent flag, reminder toggles, prompt settings).
+   - API keys are encrypted locally via Web Crypto API before being stored. No plaintext keys are saved.
 - `chrome.storage.session`:
    - Stores per-tab/page chat session (`messages`, `snippets`, cached `pageSummary`).
+   - Uses hashed URLs to identify sessions privately.
    - `pageSummary` is kept when user clears current-page chat.
    - Session data is removed when the tab closes.
 - No project-side backend database is used by this extension itself.

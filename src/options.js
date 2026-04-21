@@ -4,6 +4,7 @@ import {
   getDict,
   getSettings,
   normalizeApiEndpoint,
+  setApiKey,
   SUPPORTED_LANGUAGES
 } from "./shared.js";
 
@@ -165,7 +166,9 @@ async function saveSettings() {
     setStatus(currentDict.legalConsentRequired, false);
     return;
   }
-  await chrome.storage.local.set(settings);
+  const { apiKey, ...nonSecretSettings } = settings;
+  await chrome.storage.local.set(nonSecretSettings);
+  await setApiKey(apiKey);
   currentDict = getDict(settings.displayLanguage);
   applyTheme(settings.themeMode);
   applyText();
