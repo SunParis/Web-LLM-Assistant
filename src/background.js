@@ -13,6 +13,7 @@ const LEGACY_SIDE_PANEL_ENABLED_PAGES_KEY = "sidepanel:enabled-pages";
 let hasActionClickFallbackListener = false;
 let enabledTabsLoaded = false;
 let enabledTabs = new Set();
+const tabsWithPendingOpen = new Set();
 
 async function ensureSummaryExtractionDefaultOff() {
   const data = await chrome.storage.local.get("enablePageSummary");
@@ -180,7 +181,9 @@ async function syncSidePanelEnabledStateForTab(tabId) {
     return;
   }
   await loadEnabledTabs();
-  const enabled = enabledTabs.has(tabId);
+  // Keep side panel enabled while an open attempt is in flight to avoid
+  // racing with tab activation/update sync that could disable it.
+  const enabled = enabledTabs.has(tabId) || tabsWithPendingOpen.has(tabId);
   await setSidePanelEnabledForTab(tabId, enabled);
 }
 
@@ -246,20 +249,62 @@ function isUserGestureRestrictionError(err) {
 }
 
 /**
+ * Checks whether an error likely means the panel is not yet enabled for a tab.
+ * @param {Error|string} err - The captured error.
+ * @returns {boolean} True if it looks like a pre-enable race.
+ */
+function isPanelNotReadyError(err) {
+  const message = String(err?.message || err || "").toLowerCase();
+  return (
+    message.includes("no active side panel") ||
+    message.includes("side panel is not enabled")
+  );
+}
+
+/**
  * Attempts to safely open the side panel, managing user gesture restrictions.
  * @param {number} tabId - The target tab ID.
  * @param {string} source - The trigger context (e.g., 'action_click', 'context_menu').
  * @returns {Promise<boolean>} True if it opened successfully, otherwise false.
  */
 async function openSidePanelSafely(tabId, source) {
+  if (!Number.isInteger(tabId)) {
+    return false;
+  }
+
+  tabsWithPendingOpen.add(tabId);
+  const enablePromise = setSidePanelEnabledForTab(tabId, true);
+
   try {
     // Fire-and-open first to keep user-gesture context for sidePanel.open().
-    const enablePromise = setSidePanelEnabledForTab(tabId, true);
     await chrome.sidePanel.open({ tabId });
     await enablePromise;
     await markTabEnabled(tabId);
     return true;
   } catch (err) {
+    if (isPanelNotReadyError(err)) {
+      try {
+        // Retry once after enable settles to absorb async ordering races.
+        await enablePromise;
+        await chrome.sidePanel.open({ tabId });
+        await markTabEnabled(tabId);
+        return true;
+      } catch (retryErr) {
+        if (isUserGestureRestrictionError(retryErr)) {
+          const retryMessage = String(retryErr?.message || retryErr || "");
+          console.warn(
+            `[Web LLM Assistant] Skip side panel open from ${source}: ${retryMessage}`
+          );
+          return false;
+        }
+        console.error(
+          `[Web LLM Assistant] side panel open failed from ${source}:`,
+          retryErr
+        );
+        return false;
+      }
+    }
+
     const message = String(err?.message || err || "");
     if (isUserGestureRestrictionError(err)) {
       console.warn(
@@ -269,6 +314,8 @@ async function openSidePanelSafely(tabId, source) {
     }
     console.error(`[Web LLM Assistant] side panel open failed from ${source}:`, err);
     return false;
+  } finally {
+    tabsWithPendingOpen.delete(tabId);
   }
 }
 
